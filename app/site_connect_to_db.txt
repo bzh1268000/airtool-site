@@ -1,0 +1,15 @@
+app/about/page.tsx
+app/categories/page.tsx
+app/contact/page.tsx
+app/hubs/page.tsx
+app/how-it-works/page.tsx
+app/register/page.tsx
+app/tools/page.tsx
+
+Since you already have:
+
+app/search/page.tsx
+app/owner/page.tsx
+app/login/page.tsx
+
+they are done already.

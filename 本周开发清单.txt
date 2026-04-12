@@ -1,0 +1,108 @@
+本周开发清单
+1. 统一基础数据结构
+
+先确认并补齐这些表/字段：
+
+profiles
+id
+full_name
+email
+role
+phone
+area / city
+address
+status
+trust_score
+contribution_score
+warning_count
+tools
+id
+name
+category
+listing_type
+price
+hub
+owner_email
+status
+bookings
+id
+tool_id
+renter_name
+renter_email
+owner_email
+start_date
+end_date
+preferred_dates
+phone
+address
+message
+status
+price_total
+platform_fee
+created_at
+2. 把 review 规则先落地
+
+本周先定最简版：
+
+5星：Trust +2
+4星：Trust +1
+3星：0
+2星：-2
+1星：-5
+提交评价者：Contribution +1
+没有 review：0
+
+同时建：
+
+reviews 表
+score_logs 表
+3. 建立事件记录表
+
+这是本周重点。
+
+先建 risk_events：
+
+id
+user_id
+booking_id
+event_type
+event_reason
+risk_score
+source
+status
+created_at
+
+先支持写入这些事件：
+
+one_star_review
+false_info
+dispute_opened
+repeated_cancellation
+no_show
+fake_listing
+4. 落地 false info 规则
+
+在 sign up / profile / booking form 先堵明显漏洞：
+
+phone 必填
+地址/地区必填
+基本格式校验
+过滤明显假值
+
+然后规则先定：
+
+第一次假信息导致交易失败 → warning
+第二次再犯 → suggested block
+5. Admin page 先做成工作台
+
+本周把 admin 首页先稳定下来：
+
+Summary cards
+3 main columns
+Data & Finance
+Actions & Risk Control
+Rules, Info & Media
+Transaction Workspace
+AI Highlights
+Risk & Review Queue
+底部浮动快捷菜单

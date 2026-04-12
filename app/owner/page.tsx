@@ -1,0 +1,1375 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase/client";
+import DashboardShell from "../components/dashboard-shell";
+import BookingChat from "../components/booking-chat";
+import DisputeTimeline, { type DisputeRecord } from "../components/dispute-timeline";
+
+type Booking = {
+  id: number;
+  tool_id: number | null;
+  user_name?: string | null;
+  user_email?: string | null;
+  renter_confirmed?: boolean | null;
+  renter_confirmed_at?: string | null;
+  owner_confirmed?: boolean | null;
+  owner_confirmed_at?: string | null;
+  confirmed_at?: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  preferred_dates?: string | null;
+  phone: string | null;
+  address: string | null;
+  message: string | null;
+  status: string | null;
+  price_total: number | null;
+  platform_fee: number | null;
+  created_at: string | null;
+  owner_email: string | null;
+  paid_at?: string | null;
+};
+
+type Tool = {
+  id: number;
+  name: string | null;
+  description: string | null;
+  category: string | null;
+  price_per_day: number | null;
+  image_url: string | null;
+  video_url: string | null;
+  promo_price: number | null;
+  promo_label: string | null;
+  listing_type: string | null;
+  status: string | null;
+  owner_email: string | null;
+  created_at: string | null;
+};
+
+const TOOL_CATEGORIES = [
+  "Uncategorised",
+  "Garden & Outdoor",
+  "Power Tools",
+  "Hand Tools",
+  "Cleaning",
+  "Construction",
+  "Automotive",
+  "Plumbing",
+  "Electrical",
+  "Ladders & Scaffolding",
+  "Other",
+] as const;
+
+/** Owner's share of a booking: price minus platform fee, or 85 % if fee is unknown. */
+type Profile = {
+  full_name?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  suburb?: string | null;
+  city?: string | null;
+  id_type?: string | null;
+  id_number?: string | null;
+  prefer_delivery?: string | null;
+  role?: string | null;
+  successful_transactions?: number | null;
+};
+
+function ownerPayout(priceTotal: number | null, platformFee: number | null): number {
+  const price = Number(priceTotal || 0);
+  return platformFee != null ? price - Number(platformFee) : price * 0.85;
+}
+
+const statusColorMap: Record<string, string> = {
+  new:           "bg-yellow-100 text-yellow-800",
+  pending:       "bg-yellow-100 text-yellow-800",
+  waiting_renter:"bg-orange-100 text-orange-800",
+  waiting_owner: "bg-orange-100 text-orange-800",
+  waiting_both:  "bg-orange-100 text-orange-800",
+  approved:      "bg-blue-100 text-blue-800",
+  confirmed:     "bg-green-100 text-green-700",
+  in_use:        "bg-blue-100 text-blue-700",
+  return_check:  "bg-indigo-100 text-indigo-700",
+  returning:     "bg-indigo-100 text-indigo-700",
+  completed:     "bg-green-100 text-green-800",
+  review:        "bg-amber-100 text-amber-700",
+  disputed:      "bg-red-100 text-red-800",
+  declined:      "bg-red-100 text-red-800",
+  cancelled:     "bg-gray-200 text-gray-700",
+};
+
+type OwnerTab = "bookings" | "tools";
+
+function getOwnerStatusLabel(b: Booking): string {
+  const renterName = b.user_name || "Renter";
+  switch (b.status) {
+    case "pending":        return "New booking request";
+    case "waiting_renter": return `✅ You confirmed — waiting for ${renterName} to confirm`;
+    case "waiting_owner":  return "⚡ Please confirm this booking";
+    case "waiting_both":   return "Waiting for both parties to confirm";
+    case "confirmed":      return "🎉 Booking confirmed! Prepare the tool";
+    case "in_use":         return "🔧 Tool in use — mark as returned when renter brings it back";
+    case "return_check":
+    case "returning":      return "📦 Return received — confirm condition or raise a dispute";
+    case "completed":      return "✅ Completed — payment released from escrow";
+    case "review":         return "⭐ Please review the renter";
+    case "disputed":       return "⚠️ Dispute open — under AirTool review";
+    default:               return b.status || "pending";
+  }
+}
+
+export default function OwnerPage() {
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [toolsMap, setToolsMap] = useState<Record<number, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [userEmail, setUserEmail] = useState("");
+  const [userId, setUserId] = useState("");
+  const [errorText, setErrorText] = useState("");
+  const [role, setRole] = useState<string | null>(null);
+  // Persist selected tab across page navigations via localStorage.
+  // Lazy initializer: read from localStorage on first render (client-only).
+  const [activeTab, setActiveTab] = useState<OwnerTab>(() => {
+    if (typeof window === "undefined") return "bookings";
+    const saved = localStorage.getItem("ownerTab");
+    return (saved === "bookings" || saved === "tools") ? saved : "bookings";
+  });
+  const [unreadCount, setUnreadCount] = useState(0);
+  const router = useRouter();
+
+  // My Tools state
+  const [ownerTools, setOwnerTools] = useState<Tool[]>([]);
+  const [toolsLoading, setToolsLoading] = useState(false);
+  const [uploadingPhotoId, setUploadingPhotoId] = useState<number | null>(null);
+  const [uploadingVideoId, setUploadingVideoId] = useState<number | null>(null);
+  const [editingPromoId, setEditingPromoId] = useState<number | null>(null);
+  const [promoPrice, setPromoPrice] = useState("");
+  const [promoLabel, setPromoLabel] = useState("");
+  const [promoSaving, setPromoSaving] = useState(false);
+  const photoInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+  const videoInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+
+  // Experience points — message conversations (fetched async; rest is derived)
+  const [xpMessageConvos, setXpMessageConvos] = useState(0);
+
+  // Profile panel
+  const [showProfile, setShowProfile] = useState(false);
+  const [profile, setProfile] = useState<Profile>({});
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMsg, setProfileMsg] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [suburb, setSuburb] = useState("");
+  const [city, setCity] = useState("");
+  const [idType, setIdType] = useState("");
+  const [idNumber, setIdNumber] = useState("");
+  const [preferDelivery, setPreferDelivery] = useState("pickup");
+
+  // Category save state
+  const [savingCategoryId, setSavingCategoryId] = useState<number | null>(null);
+  const [savedCategoryId, setSavedCategoryId] = useState<number | null>(null);
+
+  // Dual-confirmation state
+  const [cancelConfirmBookingId, setCancelConfirmBookingId] = useState<number | null>(null);
+  const [cancelConfirmReason, setCancelConfirmReason] = useState("");
+
+  // Dispute flow state
+  const [disputingBookingId, setDisputingBookingId] = useState<number | null>(null);
+  const [disputeReason, setDisputeReason] = useState("");
+  const [disputeAmount, setDisputeAmount] = useState("");
+  const [disputeEvidenceFiles, setDisputeEvidenceFiles] = useState<File[]>([]);
+  const [disputeSubmitting, setDisputeSubmitting] = useState(false);
+
+  // Fetched dispute records keyed by booking_id
+  const [disputesMap, setDisputesMap] = useState<Record<number, DisputeRecord>>({});
+
+  // Single fetcher: bookings + XP message-convos + unread count — all in parallel.
+  // Fetch disputes for a list of booking IDs and merge into disputesMap
+  const fetchDisputesForBookings = async (bks: Booking[]) => {
+    const disputedIds = bks.filter((b) => b.status === "disputed").map((b) => b.id);
+    if (!disputedIds.length) return;
+    const { data } = await supabase
+      .from("disputes")
+      .select("*")
+      .in("booking_id", disputedIds);
+    if (!data) return;
+    setDisputesMap((prev) => {
+      const next = { ...prev };
+      for (const d of data as DisputeRecord[]) {
+        next[d.booking_id] = d;
+      }
+      return next;
+    });
+  };
+
+  const fetchBookings = async () => {
+    if (!userEmail) return;
+    const [
+      { data: bookingsData },
+      { data: sentMsgs },
+      { count: unread },
+    ] = await Promise.all([
+      supabase.from("bookings").select("*").eq("owner_email", userEmail).order("created_at", { ascending: false }),
+      supabase.from("messages").select("booking_id").eq("sender_email", userEmail),
+      supabase.from("messages").select("*", { count: "exact", head: true }).eq("receiver_email", userEmail).eq("is_read", false),
+    ]);
+    if (bookingsData) {
+      const bks = bookingsData as Booking[];
+      setBookings(bks);
+      fetchDisputesForBookings(bks);
+    }
+    setXpMessageConvos(new Set((sentMsgs || []).map((m) => m.booking_id)).size);
+    setUnreadCount(unread || 0);
+  };
+
+  const sendSystemMessage = async (bookingId: number, renterEmail: string | null | undefined, text: string) => {
+    if (!renterEmail || !userEmail) return;
+    await supabase.from("messages").insert({
+      booking_id: bookingId,
+      sender_email: userEmail,
+      receiver_email: renterEmail,
+      message: text,
+    });
+  };
+
+  const ownerConfirmBooking = async (b: Booking) => {
+    const ok = window.confirm(`Confirm booking #${b.id} for ${b.user_name || "renter"}?`);
+    if (!ok) return;
+
+    const bothConfirmed = b.renter_confirmed === true;
+    const newStatus = bothConfirmed ? "confirmed" : "waiting_renter";
+    const updates: Record<string, unknown> = {
+      owner_confirmed: true,
+      owner_confirmed_at: new Date().toISOString(),
+      status: newStatus,
+    };
+    if (bothConfirmed) updates.confirmed_at = new Date().toISOString();
+
+    const { data: updatedRows, error } = await supabase
+      .from("bookings")
+      .update(updates)
+      .eq("id", b.id)
+      .select();
+
+    console.log("[ownerConfirm] booking id:", b.id, "| updated rows:", updatedRows, "| error:", error);
+
+    if (error) { alert("Failed: " + error.message); return; }
+    if (!updatedRows || updatedRows.length === 0) {
+      alert(`Update matched 0 rows for booking #${b.id}. Check Supabase RLS policy — the owner may not have write permission on this row.`);
+      return;
+    }
+
+    await supabase.from("booking_confirmations").insert({
+      booking_id: b.id,
+      user_role: "owner",
+      action: "confirmed",
+    });
+
+    const msg = bothConfirmed
+      ? "🎉 Both parties have confirmed the booking!"
+      : `✅ Owner confirmed the booking — waiting for ${b.user_name || "renter"} to confirm`;
+    await sendSystemMessage(b.id, b.user_email, msg);
+
+    setBookings((prev) => prev.map((bk) => bk.id === b.id ? { ...bk, ...updates } : bk));
+  };
+
+  const ownerWithdrawConfirmation = async (b: Booking) => {
+    const reason = cancelConfirmReason.trim();
+    const { data: withdrawRows, error } = await supabase
+      .from("bookings")
+      .update({ owner_confirmed: false, status: "pending" })
+      .eq("id", b.id)
+      .select();
+
+    console.log("[ownerWithdraw] booking id:", b.id, "| updated rows:", withdrawRows, "| error:", error);
+
+    if (error) { alert("Failed: " + error.message); return; }
+    if (!withdrawRows || withdrawRows.length === 0) {
+      alert(`Update matched 0 rows for booking #${b.id}. Check Supabase RLS policy.`);
+      return;
+    }
+
+    await supabase.from("booking_confirmations").insert({
+      booking_id: b.id,
+      user_role: "owner",
+      action: "withdrawn",
+      reason: reason || null,
+    });
+
+    await sendSystemMessage(b.id, b.user_email, "⚠️ Owner withdrew their confirmation — booking returned to pending");
+
+    setBookings((prev) => prev.map((bk) =>
+      bk.id === b.id ? { ...bk, owner_confirmed: false, status: "pending" } : bk
+    ));
+    setCancelConfirmBookingId(null);
+    setCancelConfirmReason("");
+  };
+
+  useEffect(() => {
+    const fetchOwnerData = async () => {
+      setLoading(true);
+      setErrorText("");
+
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+      if (authError) { setErrorText(authError.message); setLoading(false); return; }
+      if (!user?.email) { router.replace("/login"); return; }
+
+      setUserEmail(user.email);
+      setUserId(user.id);
+
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles").select("role").eq("id", user.id).single();
+
+      if (profileError) { setErrorText(profileError.message); setLoading(false); return; }
+      setRole(profile?.role || null);
+
+      const { data: toolsData } = await supabase.from("tools").select("id,name");
+      if (toolsData) {
+        const map: Record<number, string> = {};
+        (toolsData as { id: number; name: string | null }[]).forEach((t) => {
+          if (typeof t.id === "number") map[t.id] = t.name || `Tool #${t.id}`;
+        });
+        setToolsMap(map);
+      }
+
+      const [
+        { data: bookingsData, error: bookingsError },
+        { data: sentMsgs },
+        { count: initCount },
+      ] = await Promise.all([
+        supabase.from("bookings").select("*").eq("owner_email", user.email).order("created_at", { ascending: false }),
+        supabase.from("messages").select("booking_id").eq("sender_email", user.email),
+        supabase.from("messages").select("*", { count: "exact", head: true }).eq("receiver_email", user.email).eq("is_read", false),
+      ]);
+
+      if (bookingsError) { setErrorText(bookingsError.message); setLoading(false); return; }
+      const bks = (bookingsData as Booking[]) || [];
+      setBookings(bks);
+      fetchDisputesForBookings(bks);
+      setXpMessageConvos(new Set((sentMsgs || []).map((m) => m.booking_id)).size);
+      setUnreadCount(initCount || 0);
+
+      setLoading(false);
+    };
+
+    fetchOwnerData();
+  }, [router]);
+
+  useEffect(() => {
+    if (!userEmail) return;
+    window.addEventListener("focus", fetchBookings);
+    const interval = setInterval(fetchBookings, 30000);
+    return () => {
+      window.removeEventListener("focus", fetchBookings);
+      clearInterval(interval);
+    };
+  }, [userEmail]);
+
+  useEffect(() => {
+    if (!loading && role && role !== "owner" && role !== "admin") router.replace("/search");
+    if (!loading && role === "hub") router.replace("/hub");
+  }, [loading, role, router]);
+
+  // Persist tab selection to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem("ownerTab", activeTab);
+  }, [activeTab]);
+
+  // Tab change handler — writes to localStorage immediately (not waiting for effect)
+  // and logs so we can confirm the click is registering
+  const handleTabChange = (tab: OwnerTab) => {
+    console.log("tab changing to:", tab);
+    setActiveTab(tab);
+    localStorage.setItem("ownerTab", tab);
+  };
+
+  // Load owner tools when tab switches to "tools"
+  useEffect(() => {
+    if (activeTab !== "tools" || !userEmail) return;
+    const fetchOwnerTools = async () => {
+      setToolsLoading(true);
+      const { data, error } = await supabase
+        .from("tools").select("*").eq("owner_email", userEmail)
+        .order("created_at", { ascending: false });
+      if (!error) setOwnerTools((data as Tool[]) || []);
+      setToolsLoading(false);
+    };
+    fetchOwnerTools();
+  }, [activeTab, userEmail]);
+
+  const handleUploadPhoto = async (toolId: number, file: File) => {
+    setUploadingPhotoId(toolId);
+    const ext = file.name.split(".").pop();
+    const path = `${userId}/${toolId}/photo-${Date.now()}.${ext}`;
+    const { error: uploadError } = await supabase.storage
+      .from("tool-media").upload(path, file, { upsert: true });
+    if (uploadError) { alert("Upload failed: " + uploadError.message); setUploadingPhotoId(null); return; }
+    const { data: urlData } = supabase.storage.from("tool-media").getPublicUrl(path);
+    const { error } = await supabase.from("tools")
+      .update({ image_url: urlData.publicUrl }).eq("id", toolId);
+    if (error) { alert(error.message); } else {
+      setOwnerTools((prev) => prev.map((t) => t.id === toolId ? { ...t, image_url: urlData.publicUrl } : t));
+    }
+    setUploadingPhotoId(null);
+  };
+
+  const handleUploadVideo = async (toolId: number, file: File) => {
+    setUploadingVideoId(toolId);
+    const ext = file.name.split(".").pop();
+    const path = `${userId}/${toolId}/video-${Date.now()}.${ext}`;
+    const { error: uploadError } = await supabase.storage
+      .from("tool-media").upload(path, file, { upsert: true });
+    if (uploadError) { alert("Upload failed: " + uploadError.message); setUploadingVideoId(null); return; }
+    const { data: urlData } = supabase.storage.from("tool-media").getPublicUrl(path);
+    const { error } = await supabase.from("tools")
+      .update({ video_url: urlData.publicUrl }).eq("id", toolId);
+    if (!error) {
+      setOwnerTools((prev) => prev.map((t) => t.id === toolId ? { ...t, video_url: urlData.publicUrl } : t));
+    }
+    setUploadingVideoId(null);
+  };
+
+  const handleSavePromo = async (toolId: number) => {
+    setPromoSaving(true);
+    const price = promoPrice ? Number(promoPrice) : null;
+    const { error } = await supabase.from("tools")
+      .update({ promo_price: price, promo_label: promoLabel.trim() || null })
+      .eq("id", toolId);
+    if (error) { alert(error.message); setPromoSaving(false); return; }
+    setOwnerTools((prev) => prev.map((t) =>
+      t.id === toolId ? { ...t, promo_price: price, promo_label: promoLabel.trim() || null } : t
+    ));
+    setEditingPromoId(null);
+    setPromoPrice("");
+    setPromoLabel("");
+    setPromoSaving(false);
+  };
+
+  const handleUpdateCategory = async (toolId: number, category: string) => {
+    setSavingCategoryId(toolId);
+    const { error } = await supabase.from("tools").update({ category }).eq("id", toolId);
+    setSavingCategoryId(null);
+    if (error) { alert(error.message); return; }
+    setOwnerTools((prev) => prev.map((t) => t.id === toolId ? { ...t, category } : t));
+    setSavedCategoryId(toolId);
+    setTimeout(() => setSavedCategoryId((prev) => prev === toolId ? null : prev), 2000);
+  };
+
+  const loadProfile = async () => {
+    if (!userId) return;
+    setProfileLoading(true);
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("full_name, phone, address, suburb, city, id_type, id_number, prefer_delivery, role, successful_transactions")
+      .eq("id", userId)
+      .single();
+    if (!error && data) {
+      setProfile(data as Profile);
+      setFullName(data.full_name || "");
+      setPhone(data.phone || "");
+      setAddress(data.address || "");
+      setSuburb(data.suburb || "");
+      setCity(data.city || "");
+      setIdType(data.id_type || "");
+      setIdNumber(data.id_number || "");
+      setPreferDelivery(data.prefer_delivery || "pickup");
+    }
+    setProfileLoading(false);
+  };
+
+  const handleOpenProfile = () => {
+    setShowProfile(true);
+    setProfileMsg("");
+    loadProfile();
+  };
+
+  const handleSaveProfile = async () => {
+    setProfileSaving(true);
+    setProfileMsg("");
+    const { error } = await supabase
+      .from("profiles")
+      .update({ full_name: fullName, phone, address, suburb, city, id_type: idType, id_number: idNumber, prefer_delivery: preferDelivery })
+      .eq("id", userId);
+    if (error) {
+      setProfileMsg("❌ Failed to save: " + error.message);
+    } else {
+      setProfileMsg("✅ Profile updated successfully!");
+    }
+    setProfileSaving(false);
+  };
+
+  // ── Bookings stats ──────────────────────────────────────────────────────────
+  const totalBookings = bookings.length;
+
+  const newBookings = useMemo(
+    () => bookings.filter((b) => (b.status || "new") === "new" || b.status === "pending").length,
+    [bookings],
+  );
+
+  // "Approved" = confirmed by both parties
+  const confirmedBookings = useMemo(
+    () => bookings.filter((b) => b.status === "confirmed").length,
+    [bookings],
+  );
+
+  const completedBookings = useMemo(
+    () => bookings.filter((b) => b.status === "completed").length,
+    [bookings],
+  );
+
+  // Funds sitting in escrow (paid but not yet released to owner)
+  const pendingIncome = useMemo(
+    () =>
+      bookings
+        .filter((b) => ["confirmed", "in_use", "return_check"].includes(b.status || ""))
+        .reduce((sum, b) => sum + Number(b.price_total || 0), 0),
+    [bookings],
+  );
+
+  // Actual income earned — owner keeps 85 % (direct rental) after platform fee
+  const grossIncome = useMemo(
+    () =>
+      bookings
+        .filter((b) => b.status === "completed")
+        .reduce((sum, b) => sum + ownerPayout(b.price_total, b.platform_fee), 0),
+    [bookings],
+  );
+
+  // ── Experience / trust points (derived — no extra DB column needed) ─────────
+  // +1 per unique booking conversation with a message sent
+  // +1 per booking the owner confirmed
+  // +1 per booking where renter picked up  (in_use / return_check / completed / review)
+  // +1 per booking where return was confirmed (completed / review)
+  const ownerXp = useMemo(() => {
+    const { confirms, pickups, returns } = bookings.reduce(
+      (acc, b) => {
+        if (b.owner_confirmed) acc.confirms++;
+        if (["in_use", "return_check", "completed", "review"].includes(b.status || "")) acc.pickups++;
+        if (["completed", "review"].includes(b.status || "")) acc.returns++;
+        return acc;
+      },
+      { confirms: 0, pickups: 0, returns: 0 },
+    );
+    return xpMessageConvos + confirms + pickups + returns;
+  }, [bookings, xpMessageConvos]);
+
+  // ── Lifecycle: mark tool as returned (in_use → return_check) ─────────────────
+  const handleMarkReturned = async (b: Booking) => {
+    const ok = window.confirm(`Mark booking #${b.id} as returned? This tells the system the renter has handed the tool back.`);
+    if (!ok) return;
+    const { error } = await supabase.from("bookings").update({ status: "return_check" }).eq("id", b.id);
+    if (error) { alert("Failed: " + error.message); return; }
+    await sendSystemMessage(b.id, b.user_email, "📦 The owner has marked the tool as returned. Return check in progress.");
+    setBookings((prev) => prev.map((bk) => bk.id === b.id ? { ...bk, status: "return_check" } : bk));
+  };
+
+  // ── Lifecycle: confirm return (return_check → completed) ──────────────────────
+  const handleConfirmReturn = async (b: Booking) => {
+    const ok = window.confirm(`Confirm the tool is returned in good condition? This will complete the booking and release payment from escrow.`);
+    if (!ok) return;
+    const { error } = await supabase.from("bookings").update({ status: "completed" }).eq("id", b.id);
+    if (error) { alert("Failed: " + error.message); return; }
+    await sendSystemMessage(b.id, b.user_email, "✅ Return confirmed! Booking is now complete and payment has been released from escrow. Thank you!");
+    setBookings((prev) => prev.map((bk) => bk.id === b.id ? { ...bk, status: "completed" } : bk));
+  };
+
+  // ── Upload evidence files to Supabase Storage ─────────────────────────────────
+  const uploadEvidenceFiles = async (bookingId: number, files: File[], party: "owner" | "renter"): Promise<string[]> => {
+    const paths: string[] = [];
+    for (const file of files) {
+      const ext  = file.name.split(".").pop() || "jpg";
+      const path = `${bookingId}/${party}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error } = await supabase.storage.from("dispute-evidence").upload(path, file);
+      if (!error) paths.push(path);
+    }
+    return paths;
+  };
+
+  // ── Lifecycle: raise dispute (return_check → disputed) ────────────────────────
+  const handleRaiseDispute = async (b: Booking) => {
+    if (!disputeReason.trim()) { alert("Please describe the issue."); return; }
+    setDisputeSubmitting(true);
+    try {
+      // Upload evidence images first
+      const evidencePaths = disputeEvidenceFiles.length > 0
+        ? await uploadEvidenceFiles(b.id, disputeEvidenceFiles, "owner")
+        : [];
+
+      const res = await fetch("/api/disputes", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({
+          bookingId:         b.id,
+          ownerEmail:        userEmail,
+          renterEmail:       b.user_email,
+          reason:            disputeReason.trim(),
+          amountClaimed:     disputeAmount ? Number(disputeAmount) : null,
+          ownerEvidenceUrls: evidencePaths,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json();
+        alert("Failed to raise dispute: " + (j.error || "Unknown error"));
+        setDisputeSubmitting(false);
+        return;
+      }
+    } catch {
+      alert("Network error — please try again.");
+      setDisputeSubmitting(false);
+      return;
+    }
+    await sendSystemMessage(b.id, b.user_email, `⚠️ The owner has raised a dispute about this rental. AirTool team will be in contact shortly. Reason: ${disputeReason.trim()}`);
+    setBookings((prev) => prev.map((bk) => bk.id === b.id ? { ...bk, status: "disputed" } : bk));
+
+    // Optimistically add the dispute to disputesMap so the summary shows instantly
+    setDisputesMap((prev) => ({
+      ...prev,
+      [b.id]: {
+        id:                  0, // real ID unknown until refetch
+        booking_id:          b.id,
+        owner_email:         userEmail,
+        renter_email:        b.user_email ?? null,
+        reason:              disputeReason.trim(),
+        amount_claimed:      disputeAmount ? Number(disputeAmount) : null,
+        owner_evidence_urls: [],
+        renter_response:     null,
+        renter_responded_at: null,
+        renter_evidence_urls:[],
+        resolution:          null,
+        admin_notes:         null,
+        resolved_at:         null,
+        status:              "open",
+        created_at:          new Date().toISOString(),
+      },
+    }));
+
+    setDisputingBookingId(null);
+    setDisputeReason("");
+    setDisputeAmount("");
+    setDisputeEvidenceFiles([]);
+    setDisputeSubmitting(false);
+
+    // Refresh to get the real dispute ID from the DB
+    setTimeout(fetchBookings, 1500);
+  };
+
+  const updateBookingStatus = async (bookingId: number, newStatus: "approved" | "completed" | "declined") => {
+    const ok = window.confirm(`Change booking #${bookingId} to ${newStatus}?`);
+    if (!ok) return;
+    const { error } = await supabase.from("bookings").update({ status: newStatus }).eq("id", bookingId);
+    if (error) { alert(`Failed: ${error.message}`); return; }
+
+    // On approval — email the renter so they know to confirm & pay
+    if (newStatus === "approved") {
+      const b = bookings.find((bk) => bk.id === bookingId);
+      if (b?.user_email) {
+        fetch("/api/send-approval-email", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            renterEmail:    b.user_email,
+            renterName:     b.user_name,
+            toolName:       toolsMap[b.tool_id || 0] || "Tool",
+            bookingId:      b.id,
+            preferredDates: b.preferred_dates,
+            startDate:      b.start_date,
+            endDate:        b.end_date,
+            priceTotal:     b.price_total,
+          }),
+        }).catch(() => {});
+      }
+    }
+
+    fetchBookings();
+  };
+
+  if (loading || role === null) {
+    return (
+      <DashboardShell title="Checking access..." subtitle="Please wait">
+        <div className="rounded-3xl border border-gray-200 bg-white/70 p-6 shadow-sm">
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </DashboardShell>
+    );
+  }
+
+  if (role !== "owner" && role !== "admin") return null;
+
+  return (
+    <DashboardShell title="Owner Dashboard" subtitle={`Owner: ${userEmail || "-"}`}>
+      <div className="grid gap-6">
+
+        {/* Stats */}
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            { label: "Total Bookings",    value: totalBookings,              sub: `${newBookings} new` },
+            { label: "Confirmed",         value: confirmedBookings,          sub: `${completedBookings} completed` },
+            { label: "Pending Income",    value: `$${pendingIncome.toFixed(2)}`,  sub: "in escrow" },
+            { label: "Gross Income",      value: `$${grossIncome.toFixed(2)}`,    sub: "after platform fee" },
+          ].map((s) => (
+            <div key={s.label} className="rounded-3xl border border-gray-200 bg-white/20 p-4 backdrop-blur-md">
+              <p className="text-sm text-gray-500">{s.label}</p>
+              <p className="mt-2 text-3xl font-bold text-gray-900">{s.value}</p>
+              <p className="mt-1 text-xs text-gray-400">{s.sub}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Experience / trust points */}
+        <div className="flex items-center gap-4 rounded-3xl border border-indigo-100 bg-white/30 px-5 py-4 backdrop-blur-md">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white text-xl font-bold shadow">
+            {ownerXp}
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Experience Points</p>
+            <p className="text-xs text-gray-500">
+              Earned by messaging renters, confirming bookings, pickups &amp; returns
+            </p>
+          </div>
+        </div>
+
+        {/* My Profile button + panel */}
+        <div>
+          <button
+            onClick={() => showProfile ? setShowProfile(false) : handleOpenProfile()}
+            className="rounded-2xl border border-[#8bbb46] bg-[#f0f8e8] px-4 py-2.5 text-sm font-semibold text-[#2f641f] hover:bg-[#e4f5d4]"
+          >
+            👤 My Profile
+          </button>
+
+          {showProfile && (
+            <div className="mt-4 rounded-3xl border border-[#8bbb46]/30 bg-white/95 p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Personal Info</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Role: <span className="font-semibold text-[#2f641f] uppercase">{profile.role || "owner"}</span>
+                    {" · "}
+                    Successful transactions: <span className="font-semibold">{profile.successful_transactions || 0}</span>
+                  </p>
+                </div>
+                <button onClick={() => setShowProfile(false)} className="text-sm text-black/40 hover:text-black">✕ Close</button>
+              </div>
+
+              {profileLoading ? (
+                <p className="text-sm text-gray-500">Loading profile...</p>
+              ) : (
+                <div className="grid gap-4">
+                  <div className="text-xs font-semibold uppercase tracking-widest text-black/40">Personal</div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-black/60">Full Name</label>
+                      <input className="w-full rounded-xl border border-black/15 px-4 py-3 text-sm outline-none focus:border-[#8bbb46]" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Full name" />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-black/60">Phone</label>
+                      <input className="w-full rounded-xl border border-black/15 px-4 py-3 text-sm outline-none focus:border-[#8bbb46]" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" />
+                    </div>
+                  </div>
+
+                  <div className="text-xs font-semibold uppercase tracking-widest text-black/40 pt-2">Address</div>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="md:col-span-3">
+                      <label className="mb-1 block text-xs font-semibold text-black/60">Street Address</label>
+                      <input className="w-full rounded-xl border border-black/15 px-4 py-3 text-sm outline-none focus:border-[#8bbb46]" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street address" />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-black/60">Suburb</label>
+                      <input className="w-full rounded-xl border border-black/15 px-4 py-3 text-sm outline-none focus:border-[#8bbb46]" value={suburb} onChange={(e) => setSuburb(e.target.value)} placeholder="Suburb" />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-black/60">City</label>
+                      <input className="w-full rounded-xl border border-black/15 px-4 py-3 text-sm outline-none focus:border-[#8bbb46]" value={city} onChange={(e) => setCity(e.target.value)} placeholder="City" />
+                    </div>
+                  </div>
+
+                  <div className="text-xs font-semibold uppercase tracking-widest text-black/40 pt-2">Preferred Method</div>
+                  <div className="grid grid-cols-2 gap-3 max-w-sm">
+                    <button type="button" onClick={() => setPreferDelivery("pickup")} className={`rounded-xl border py-3 text-sm font-medium transition ${preferDelivery === "pickup" ? "border-[#8bbb46] bg-[#f0f8e8] text-[#2f641f]" : "border-black/15 text-black/60"}`}>📦 Hub Pickup</button>
+                    <button type="button" onClick={() => setPreferDelivery("delivery")} className={`rounded-xl border py-3 text-sm font-medium transition ${preferDelivery === "delivery" ? "border-[#8bbb46] bg-[#f0f8e8] text-[#2f641f]" : "border-black/15 text-black/60"}`}>🚚 Delivery</button>
+                  </div>
+
+                  <div className="text-xs font-semibold uppercase tracking-widest text-black/40 pt-2">ID Verification</div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-black/60">ID Type</label>
+                      <select className="w-full rounded-xl border border-black/15 px-4 py-3 text-sm outline-none focus:border-[#8bbb46]" value={idType} onChange={(e) => setIdType(e.target.value)}>
+                        <option value="">Select ID type</option>
+                        <option value="drivers_licence">Driver&apos;s Licence</option>
+                        <option value="passport">Passport</option>
+                        <option value="18plus">18+ Card</option>
+                        <option value="kiwiaccess">Kiwi Access Card</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-black/60">ID Number</label>
+                      <input className="w-full rounded-xl border border-black/15 px-4 py-3 text-sm outline-none focus:border-[#8bbb46]" value={idNumber} onChange={(e) => setIdNumber(e.target.value)} placeholder="ID number" />
+                    </div>
+                  </div>
+
+                  {profileMsg && (
+                    <div className={`rounded-xl px-4 py-3 text-sm ${profileMsg.startsWith("✅") ? "bg-[#f0f8e8] text-[#2f641f]" : "bg-red-50 text-red-600"}`}>
+                      {profileMsg}
+                    </div>
+                  )}
+
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={handleSaveProfile} disabled={profileSaving} className="rounded-xl bg-[#8bbb46] px-6 py-3 text-sm font-semibold text-white hover:bg-[#7aaa39] disabled:opacity-60">
+                      {profileSaving ? "Saving..." : "Save Changes"}
+                    </button>
+                    <button onClick={() => setShowProfile(false)} className="rounded-xl border border-black/15 px-6 py-3 text-sm font-semibold text-black/60 hover:bg-black/5">Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Unread messages banner — hidden completely when count is 0 */}
+        {unreadCount > 0 && (
+          <a
+            href="/messages"
+            className="flex items-center gap-4 rounded-2xl bg-orange-500 px-5 py-4 shadow-md hover:bg-orange-600 transition"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-orange-600 text-lg font-bold shadow">
+              {unreadCount}
+            </span>
+            <p className="text-sm font-bold text-white">
+              💬 You have {unreadCount} unread message{unreadCount > 1 ? "s" : ""} — Check here
+            </p>
+            <span className="ml-auto text-white/80 text-sm">→</span>
+          </a>
+        )}
+
+        {/* Tabs */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => handleTabChange("bookings")}
+            className={`rounded-2xl px-5 py-2.5 text-sm font-semibold transition ${activeTab === "bookings" ? "bg-slate-900 text-white" : "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"}`}
+          >
+            Bookings ({totalBookings})
+          </button>
+          <button
+            onClick={() => handleTabChange("tools")}
+            className={`rounded-2xl px-5 py-2.5 text-sm font-semibold transition ${activeTab === "tools" ? "bg-slate-900 text-white" : "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"}`}
+          >
+            My Tools ({ownerTools.length})
+          </button>
+        </div>
+
+        {errorText && (
+          <div className="rounded-3xl border border-red-200 bg-red-50 p-6 shadow-sm">
+            <p className="font-medium text-red-700">Error</p>
+            <p className="mt-2 text-sm text-red-600">{errorText}</p>
+          </div>
+        )}
+
+        {/* ── BOOKINGS TAB ── */}
+        {activeTab === "bookings" && (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <button className="rounded-2xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-black">Share Listing</button>
+              <button className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50">Copy Booking Link</button>
+              <button onClick={() => handleTabChange("tools")} className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50">Add Promo Price</button>
+              <button onClick={() => handleTabChange("tools")} className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50">Manage Tools</button>
+            </div>
+
+            {bookings.length === 0 ? (
+              <div className="rounded-3xl border border-gray-200 bg-white/75 p-6 shadow-sm backdrop-blur">
+                <p className="text-gray-600">No owner bookings found.</p>
+              </div>
+            ) : (
+              <div className="grid gap-5">
+                {bookings.map((b) => (
+                  <div key={b.id} className="rounded-3xl border border-gray-200 bg-white/55 p-6 shadow-sm backdrop-blur">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div>
+                          <h2 className="text-2xl font-bold text-gray-900">
+                            {toolsMap[b.tool_id || 0] || "Unknown Tool"}
+                          </h2>
+                          {b.tool_id && (
+                            <a
+                              href={`/tools/${b.tool_id}`}
+                              className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-[#2f641f] hover:underline"
+                            >
+                              🔧 View tool details →
+                            </a>
+                          )}
+                        </div>
+                        <div className="mt-4 flex items-center gap-3">
+                          <p className="text-sm text-gray-600">Status:</p>
+                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusColorMap[b.status || "new"] || "bg-gray-100 text-gray-800"}`}>
+                            {b.status || "new"}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-sm text-gray-500">{getOwnerStatusLabel(b)}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 grid gap-3 text-sm text-gray-700 md:grid-cols-2 xl:grid-cols-3">
+                      <p><span className="font-medium text-gray-900">Renter:</span> {b.user_name || "-"}</p>
+                      <p><span className="font-medium text-gray-900">Email:</span> {b.user_email || "-"}</p>
+                      <p><span className="font-medium text-gray-900">Phone:</span> {b.phone || "-"}</p>
+                      <p><span className="font-medium text-gray-900">Start date:</span> {b.start_date || "-"}</p>
+                      <p><span className="font-medium text-gray-900">End date:</span> {b.end_date || "-"}</p>
+                      <p><span className="font-medium text-gray-900">Preferred dates:</span> {b.preferred_dates || "-"}</p>
+                      <p><span className="font-medium text-gray-900">Address:</span> {b.address || "-"}</p>
+                      <p><span className="font-medium text-gray-900">Price total:</span> ${Number(b.price_total || 0).toFixed(2)}</p>
+                      <p><span className="font-medium text-gray-900">Platform fee:</span> ${Number(b.platform_fee || 0).toFixed(2)}</p>
+                      <p>
+                        <span className="font-medium text-gray-900">Your payout (85%):</span>{" "}
+                        <span className={b.paid_at ? "font-semibold text-green-700" : "text-gray-500"}>
+                          ${ownerPayout(b.price_total, b.platform_fee).toFixed(2)}
+                        </span>
+                        {" "}
+                        {b.paid_at
+                          ? <span className="text-xs font-semibold text-orange-500">(in escrow)</span>
+                          : b.status === "confirmed"
+                            ? <span className="text-xs text-gray-400">(awaiting renter payment)</span>
+                            : null
+                        }
+                      </p>
+                      <p className="md:col-span-2 xl:col-span-3"><span className="font-medium text-gray-900">Message:</span> {b.message || "-"}</p>
+                    </div>
+
+                    {/* ── Dispute summary (shown when booking is disputed) ── */}
+                    {b.status === "disputed" && (() => {
+                      const d = disputesMap[b.id];
+                      return (
+                        <div className="mt-5 rounded-2xl border-2 border-red-400 bg-red-50 p-5">
+                          {/* Header */}
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xl">⚠️</span>
+                              <p className="text-base font-bold text-red-900">Dispute Raised</p>
+                            </div>
+                            {d && (
+                              <span className={`rounded-full px-3 py-0.5 text-xs font-bold ${
+                                d.status === "resolved"   ? "bg-green-100 text-green-700" :
+                                d.status === "escalated" ? "bg-orange-100 text-orange-700" :
+                                                            "bg-red-100 text-red-700"
+                              }`}>
+                                {d.status === "resolved" ? "✅ Resolved" : d.status === "escalated" ? "🔺 Escalated" : "🔴 Open"}
+                              </span>
+                            )}
+                          </div>
+
+                          {d ? (
+                            <>
+                              {/* Quick-scan summary row */}
+                              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                                <div className="rounded-xl bg-white px-4 py-3 shadow-sm">
+                                  <p className="text-xs font-semibold uppercase tracking-widest text-red-400">Reason</p>
+                                  <p className="mt-1 text-sm font-medium text-gray-900 line-clamp-3">{d.reason}</p>
+                                </div>
+                                <div className="rounded-xl bg-white px-4 py-3 shadow-sm">
+                                  <p className="text-xs font-semibold uppercase tracking-widest text-red-400">Amount Claimed</p>
+                                  <p className="mt-1 text-sm font-bold text-red-700">
+                                    {d.amount_claimed != null ? `$${Number(d.amount_claimed).toFixed(2)} NZD` : "Not specified"}
+                                  </p>
+                                </div>
+                                <div className="rounded-xl bg-white px-4 py-3 shadow-sm">
+                                  <p className="text-xs font-semibold uppercase tracking-widest text-red-400">Date Raised</p>
+                                  <p className="mt-1 text-sm text-gray-700">
+                                    {d.created_at ? new Date(d.created_at).toLocaleString("en-NZ", { dateStyle: "medium", timeStyle: "short" }) : "—"}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* Full timeline */}
+                              <DisputeTimeline dispute={d} />
+                            </>
+                          ) : (
+                            <p className="mt-3 text-sm text-red-700 animate-pulse">Loading dispute details…</p>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    <div className="mt-5 flex flex-wrap gap-3">
+                      {/* ── Pre-payment flow buttons ── */}
+
+                      {/* Owner confirm button (pending/waiting states) */}
+                      {(b.status === "pending" || b.status === "waiting_owner" || b.status === "waiting_both" || b.status === "approved") && !b.owner_confirmed && (
+                        <button
+                          onClick={() => ownerConfirmBooking(b)}
+                          className="rounded-2xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700"
+                        >
+                          ✅ Confirm Booking
+                        </button>
+                      )}
+
+                      {/* Waiting badge */}
+                      {b.status === "waiting_renter" && (
+                        <span className="inline-flex items-center rounded-2xl bg-orange-100 px-4 py-2 text-sm font-semibold text-orange-700">
+                          ⏳ Waiting for renter to confirm…
+                        </span>
+                      )}
+
+                      {/* Withdraw confirmation */}
+                      {b.owner_confirmed && !["confirmed", "in_use", "return_check", "returning", "completed", "disputed"].includes(b.status || "") && (
+                        cancelConfirmBookingId === b.id ? (
+                          <div className="flex w-full flex-col gap-2 rounded-2xl border border-orange-200 bg-orange-50 p-3 mt-2">
+                            <p className="text-sm font-semibold text-orange-800">Withdraw confirmation?</p>
+                            <input
+                              value={cancelConfirmReason}
+                              onChange={(e) => setCancelConfirmReason(e.target.value)}
+                              placeholder="Reason (optional)"
+                              className="rounded-xl border border-orange-200 px-3 py-2 text-sm outline-none"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => ownerWithdrawConfirmation(b)}
+                                className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600"
+                              >
+                                Yes, withdraw
+                              </button>
+                              <button
+                                onClick={() => { setCancelConfirmBookingId(null); setCancelConfirmReason(""); }}
+                                className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setCancelConfirmBookingId(b.id)}
+                            className="rounded-2xl border border-orange-300 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-100"
+                          >
+                            ↩ Withdraw
+                          </button>
+                        )
+                      )}
+
+                      {/* ── Post-payment lifecycle buttons ── */}
+
+                      {/* in_use → mark as returned */}
+                      {b.status === "in_use" && (
+                        <button
+                          onClick={() => handleMarkReturned(b)}
+                          className="rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                        >
+                          📦 Mark as Returned
+                        </button>
+                      )}
+
+                      {/* return_check → confirm return or raise dispute */}
+                      {(b.status === "return_check" || b.status === "returning") && (
+                        <>
+                          <button
+                            onClick={() => handleConfirmReturn(b)}
+                            className="rounded-2xl bg-[#2f641f] px-4 py-2 text-sm font-semibold text-white hover:bg-[#245018]"
+                          >
+                            ✅ Confirm Return &amp; Release Payment
+                          </button>
+                          {disputingBookingId !== b.id && (
+                            <button
+                              onClick={() => { setDisputingBookingId(b.id); setDisputeReason(""); setDisputeAmount(""); }}
+                              className="rounded-2xl border border-red-300 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+                            >
+                              ⚠️ Raise Dispute
+                            </button>
+                          )}
+                        </>
+                      )}
+
+                      {/* Dispute form inline */}
+                      {disputingBookingId === b.id && (
+                        <div className="w-full mt-2 rounded-2xl border border-red-200 bg-red-50 p-4 space-y-3">
+                          <p className="text-sm font-bold text-red-800">⚠️ Raise a Dispute</p>
+                          <p className="text-xs text-red-600">Describe the issue. AirTool staff will review and contact both parties.</p>
+                          <textarea
+                            value={disputeReason}
+                            onChange={(e) => setDisputeReason(e.target.value)}
+                            placeholder="What is the issue? (e.g. tool returned damaged, missing parts, late return)"
+                            rows={3}
+                            className="w-full rounded-xl border border-red-200 px-3 py-2 text-sm outline-none focus:border-red-400"
+                          />
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold text-red-700">Amount claimed (NZD, optional)</label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={disputeAmount}
+                              onChange={(e) => setDisputeAmount(e.target.value)}
+                              placeholder="e.g. 50.00"
+                              className="w-full rounded-xl border border-red-200 px-3 py-2 text-sm outline-none focus:border-red-400"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold text-red-700">
+                              Evidence photos (optional — up to 5 images)
+                            </label>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              onChange={(e) => {
+                                const files = Array.from(e.target.files || []).slice(0, 5);
+                                setDisputeEvidenceFiles(files);
+                              }}
+                              className="w-full rounded-xl border border-red-200 bg-white px-3 py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-red-100 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-red-700"
+                            />
+                            {disputeEvidenceFiles.length > 0 && (
+                              <p className="mt-1 text-xs text-red-600">
+                                {disputeEvidenceFiles.length} file{disputeEvidenceFiles.length > 1 ? "s" : ""} selected
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleRaiseDispute(b)}
+                              disabled={disputeSubmitting}
+                              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                            >
+                              {disputeSubmitting ? "Uploading & submitting…" : "Submit Dispute"}
+                            </button>
+                            <button
+                              onClick={() => { setDisputingBookingId(null); setDisputeEvidenceFiles([]); }}
+                              className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Disputed — action buttons hidden while dispute is active */}
+                      {b.status === "disputed" && (
+                        <span className="inline-flex items-center rounded-2xl border border-red-300 bg-red-100 px-4 py-2 text-sm font-semibold text-red-800">
+                          ⚠️ Awaiting AirTool decision
+                        </span>
+                      )}
+
+                      {/* Decline (for pre-payment statuses only) */}
+                      {!["in_use", "return_check", "returning", "completed", "disputed", "declined", "cancelled"].includes(b.status || "") && (
+                        <button onClick={() => updateBookingStatus(b.id, "declined")}
+                          className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50">
+                          Decline
+                        </button>
+                      )}
+
+                      {/* Chat */}
+                      {b.user_email && (
+                        <BookingChat
+                          bookingId={b.id}
+                          myEmail={userEmail}
+                          otherEmail={b.user_email}
+                          label="💬 Message Renter"
+                        />
+                      )}
+                    </div>
+
+                    <p className="mt-5 text-xs text-gray-400">
+                      {b.created_at ? new Date(b.created_at).toLocaleString() : ""}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── MY TOOLS TAB ── */}
+        {activeTab === "tools" && (
+          <>
+            {toolsLoading ? (
+              <div className="rounded-3xl border border-gray-200 bg-white/90 p-6 shadow-sm">
+                <p className="text-gray-600">Loading your tools...</p>
+              </div>
+            ) : ownerTools.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-gray-300 p-10 text-center text-gray-500">
+                <p className="text-lg font-semibold">No tools listed yet.</p>
+                <p className="mt-2 text-sm">Your tool listings will appear here once added.</p>
+              </div>
+            ) : (
+              <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                {ownerTools.map((tool) => (
+                  <div key={tool.id} className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
+
+                    {/* Photo area */}
+                    <div className="relative aspect-[4/3] bg-gray-100">
+                      {tool.image_url ? (
+                        <img src={tool.image_url} alt={tool.name || "Tool"} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full items-center justify-center text-sm text-gray-400">No photo yet</div>
+                      )}
+                      {tool.promo_price && (
+                        <span className="absolute left-3 top-3 rounded-full bg-red-500 px-3 py-1 text-xs font-bold text-white shadow">
+                          {tool.promo_label || "PROMO"} ${Number(tool.promo_price).toFixed(2)}/day
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Video preview */}
+                    {tool.video_url && (
+                      <video src={tool.video_url} controls className="w-full max-h-40 bg-black object-contain" />
+                    )}
+
+                    <div className="p-5 space-y-4">
+                      {/* Tool info */}
+                      <div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <a
+                              href={`/tools/${tool.id}`}
+                              className="text-lg font-bold text-gray-900 hover:text-[#2f641f] hover:underline"
+                            >
+                              {tool.name || "Unnamed Tool"}
+                            </a>
+                            <a
+                              href={`/tools/${tool.id}`}
+                              className="ml-2 text-xs font-medium text-[#8bbb46] hover:underline"
+                            >
+                              View →
+                            </a>
+                          </div>
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${tool.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}`}>
+                            {tool.status || "active"}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center gap-2">
+                          <div className="relative flex-1">
+                            <select
+                              value={tool.category || "Uncategorised"}
+                              onChange={(e) => handleUpdateCategory(tool.id, e.target.value)}
+                              disabled={savingCategoryId === tool.id}
+                              className="w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 py-1.5 pl-3 pr-7 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-60 cursor-pointer focus:outline-none focus:border-gray-400"
+                            >
+                              {TOOL_CATEGORIES.map((cat) => (
+                                <option key={cat} value={cat}>{cat}</option>
+                              ))}
+                            </select>
+                            <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-[10px]">▾</span>
+                          </div>
+                          {savedCategoryId === tool.id && (
+                            <span className="shrink-0 text-sm font-semibold text-green-600">✓ Saved</span>
+                          )}
+                          {savingCategoryId === tool.id && (
+                            <span className="shrink-0 text-xs text-gray-400">Saving…</span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-lg font-bold text-gray-900">
+                          ${Number(tool.price_per_day || 0).toFixed(2)}
+                          <span className="text-sm font-normal text-gray-500"> / day</span>
+                        </p>
+                      </div>
+
+                      {/* Upload photo */}
+                      <div>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          ref={(el) => { photoInputRefs.current[tool.id] = el; }}
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleUploadPhoto(tool.id, file);
+                          }}
+                        />
+                        <button
+                          onClick={() => photoInputRefs.current[tool.id]?.click()}
+                          disabled={uploadingPhotoId === tool.id}
+                          className="w-full rounded-2xl border border-gray-200 bg-gray-50 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-60"
+                        >
+                          {uploadingPhotoId === tool.id ? "Uploading photo..." : "📷 Upload / Replace Photo"}
+                        </button>
+                      </div>
+
+                      {/* Upload video */}
+                      <div>
+                        <input
+                          type="file"
+                          accept="video/*"
+                          ref={(el) => { videoInputRefs.current[tool.id] = el; }}
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleUploadVideo(tool.id, file);
+                          }}
+                        />
+                        <button
+                          onClick={() => videoInputRefs.current[tool.id]?.click()}
+                          disabled={uploadingVideoId === tool.id}
+                          className="w-full rounded-2xl border border-gray-200 bg-gray-50 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-60"
+                        >
+                          {uploadingVideoId === tool.id ? "Uploading video..." : "🎥 Upload / Replace Video"}
+                        </button>
+                      </div>
+
+                      {/* Promo price */}
+                      {editingPromoId === tool.id ? (
+                        <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 space-y-3">
+                          <p className="text-xs font-semibold uppercase tracking-widest text-orange-700">Set Promotional Price</p>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={promoPrice}
+                            onChange={(e) => setPromoPrice(e.target.value)}
+                            placeholder="Promo price / day"
+                            className="w-full rounded-xl border border-orange-200 px-3 py-2 text-sm outline-none focus:border-orange-400"
+                          />
+                          <input
+                            type="text"
+                            value={promoLabel}
+                            onChange={(e) => setPromoLabel(e.target.value)}
+                            placeholder='Label e.g. "SALE" or "WEEKEND DEAL"'
+                            className="w-full rounded-xl border border-orange-200 px-3 py-2 text-sm outline-none focus:border-orange-400"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleSavePromo(tool.id)}
+                              disabled={promoSaving}
+                              className="flex-1 rounded-xl bg-orange-500 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
+                            >
+                              {promoSaving ? "Saving..." : "Save Promo"}
+                            </button>
+                            <button
+                              onClick={() => { setEditingPromoId(null); setPromoPrice(""); setPromoLabel(""); }}
+                              className="flex-1 rounded-xl border border-gray-200 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                          {tool.promo_price && (
+                            <button
+                              onClick={async () => {
+                                await supabase.from("tools").update({ promo_price: null, promo_label: null }).eq("id", tool.id);
+                                setOwnerTools((prev) => prev.map((t) => t.id === tool.id ? { ...t, promo_price: null, promo_label: null } : t));
+                                setEditingPromoId(null);
+                              }}
+                              className="w-full rounded-xl border border-red-200 py-2 text-sm font-semibold text-red-500 hover:bg-red-50"
+                            >
+                              Remove Promo
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setEditingPromoId(tool.id);
+                            setPromoPrice(tool.promo_price ? String(tool.promo_price) : "");
+                            setPromoLabel(tool.promo_label || "");
+                          }}
+                          className={`w-full rounded-2xl py-2 text-sm font-semibold transition ${tool.promo_price ? "border border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100" : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"}`}
+                        >
+                          {tool.promo_price ? `🏷️ Promo: $${Number(tool.promo_price).toFixed(2)}/day — Edit` : "🏷️ Set Promo Price"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </DashboardShell>
+  );
+}

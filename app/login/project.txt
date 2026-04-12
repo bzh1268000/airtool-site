@@ -1,0 +1,21 @@
+7./Qp@%4%x$cyq-
+
+https://zwwkwxdbksykalavqprw.supabase.co
+
+Project ID
+Reference used in APIs and URLs.
+zwwkwxdbksykalavqprw
+
+anon
+public
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp3d2t3eGRia3N5a2FsYXZxcHJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyODQ3MTYsImV4cCI6MjA4OTg2MDcxNn0.kcuyeZzdAOlSVylMuzptYzLAhN9_BPA7mRc2iPX1HVw
+
+Copy
+This key is safe to use in a browser if you have enabled Row Level Security for your tables and configured policies. Prefer using Publishable API keys instead.
+
+service_role
+secret
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp3d2t3eGRia3N5a2FsYXZxcHJ3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDI4NDcxNiwiZXhwIjoyMDg5ODYwNzE2fQ.OgGrgu2HbDAOLcG5nLgRed2ct00ecEHe7x4lVONQICg
+
+Copy
+This key has the ability to bypass Row Level Security. Never share it publicly. If leaked, generate a new JWT secret immediately. Prefer using Secret API keys instead.

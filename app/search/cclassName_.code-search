@@ -1,0 +1,9 @@
+# Query: cclassName=
+# ContextLines: 1
+
+1 result - 1 file
+
+app\owner\tools\page.tsx:
+  257              <div className="rounded-3xl border border-gray-200 bg-white/15 backdrop-blur-sm">
+  258:               <div className="rounded-3xl border border-gray-200 bg-white/90 p-6 shadow-sm backdrop-blur-md">
+  259                  <h2 className="text-2xl font-bold text-gray-900">My Listings</h2>
