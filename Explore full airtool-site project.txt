@@ -1,0 +1,77 @@
+Explore full airtool-site project
+
+Here's the full project review:
+
+🏗️ AirTool.nz — Project Status Report
+Tech Stack
+Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4 · Supabase (Auth + DB + Storage) · Resend (email) · Lucide icons
+
+✅ What's Done
+Infrastructure & Auth
+Supabase auth — email/password + Google OAuth, role-based redirect (admin / owner / hub / renter)
+User registration with real NZ phone/address validation, terms acceptance, profile creation
+Global navbar with auth state, mobile menu
+DashboardShell layout with blurred sky background
+Public-Facing
+Home page — hero carousel, live search bar, category + hub dropdowns (both loaded from DB), tool cards with images + pricing
+Search page — full filter by name/category/hub, "Matched" + "Nearby" sections, paginated
+Tool detail page — server component, multi-image gallery, video, specs, accessories, rules, hub/category FK joins
+Terms page
+Dashboards (all role-gated)
+Dashboard	Status
+Renter	Bookings list, dual-confirm flow, profile edit, review modal (score + media upload), unread badge
+Owner	Bookings tab (confirm/decline/complete/payout calc/XP), My Tools tab (photo/video upload, promo price, category selector), profile edit
+Hub	Hub-scoped booking queue (4 tabs), workflow panel, profile edit
+Admin	Stats, finance summary with date range filter, booking tabs by type, risk queue, email/publishing panels
+Messaging
+Real-time chat (Supabase Postgres Changes), conversation sidebar, marks-as-read, unread count badge on dashboards, role-aware back button
+Emails
+Booking alert to admin (/api/send-booking-alert) — live via Resend
+Booking status to renter — approved/rejected (/api/send-booking-status) — live
+Recent additions (this session)
+Owner & hub profile panels
+Owner stats wired to real DB (confirmed, pending income, gross income, XP)
+Tool category selector with instant save + ✓ flash
+All Chinese text replaced with English throughout
+❌ What's NOT Done (Gaps)
+🔴 Critical — blocks real usage
+Gap	Detail
+Booking request form	/booking/[id] is a stub with a red test banner — no actual form, no DB insert
+Stripe payments	/my-booking/[id] says "coming soon — pay owner directly" — no payment processing
+Bond / escrow logic	Designed in spec but no DB columns (bond, owner_amount) and no payment flow
+🟡 Important — incomplete flows
+Gap	Detail
+Tool creation for owners	/owner/tools page exists but unclear if fully wired end-to-end
+Admin approval email	/api/send-approval-email only logs to console, never calls Resend
+Return confirmation flow	Status return_check → completed has no dedicated UI action
+Bond refund logic	Spec says auto-refund bond after return — not implemented
+Payment split	85% owner / 10% admin / 90% hub split is calculated in UI only, no actual disbursement
+/my-bookings	Shows ALL bookings, not filtered to current user
+XP stored in DB	Currently derived/computed — not persisted to profiles table
+🟢 Nice-to-have / content pages
+Page	Status
+/about	Coming soon stub
+/contact	Coming soon stub
+/categories	Coming soon stub
+/how-it-works	Coming soon stub
+/hubs	Coming soon stub
+Admin AI section	UI placeholder only
+Profile photo upload	Not built
+📋 Suggested Build Order
+Priority	Task	Est. Time
+1	Booking request form /booking/[id] — form → DB insert → confirmation email	1–2 days
+2	Stripe integration — checkout session, webhook, escrow status update	2–3 days
+3	Tool creation flow — owner lists new tool end-to-end	1 day
+4	Return confirmation UI — hub/owner marks return done, triggers bond refund	1 day
+5	Fix /my-bookings — filter to current user	2 hours
+6	Wire approval email — connect /api/send-approval-email to Resend	1 hour
+7	XP persistence — add experience_points column, increment on events	half day
+8	Content pages — about, how-it-works, hubs, categories	1–2 days
+9	Admin AI section — booking summaries, risk flags	2–3 days
+10	Profile photo upload	half day
+⏱️ Total Estimate to "Complete" MVP
+Phase	What	Time
+Core flows done (booking form + Stripe + tool creation + return flow)	Usable end-to-end	~1 week
+Polish + content (missing pages, email fixes, XP, profile photo)	Production-ready feel	+3–4 days
+Advanced features (AI admin, analytics, dispute flow, hub payouts)	Full platform	+2–3 weeks
+Bottom line: The foundation is solid — auth, DB schema, dashboards, messaging, and email are all in place. The project is roughly 70–75% complete for a launch-ready MVP. The two biggest remaining items are the booking form and Stripe payments — once those are done the full loop works end-to-end. translate to chinese
