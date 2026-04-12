@@ -193,7 +193,7 @@ export default function BookingPage({
           .in("status", BLOCKING_STATUSES),
       ]);
 
-      if (toolData) setTool(toolData as Tool);
+     if (toolData) setTool(toolData as unknown as Tool);
       if (existingBookings) setBookedPeriods(existingBookings as BookedPeriod[]);
       if (profile) {
         setFullName(profile.full_name ?? "");
