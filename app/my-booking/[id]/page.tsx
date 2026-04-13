@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useRef, useState } from "react";
+import { use, useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 
@@ -89,7 +89,7 @@ function EvidenceGrid({ urls }: { urls: string[] }) {
   );
 }
 
-export default function MyBookingPage({
+function MyBookingContent({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -810,5 +810,17 @@ export default function MyBookingPage({
 
       </div>
     </div>
+  );
+}
+
+export default function MyBookingPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading...</div>}>
+      <MyBookingContent params={params} />
+    </Suspense>
   );
 }
