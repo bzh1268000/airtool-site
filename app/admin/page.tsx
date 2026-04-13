@@ -181,7 +181,7 @@ export default function AdminPage() {
 
       const { data: toolsData, error: toolsError } = await supabase
         .from("tools")
-        .select("id,name,owner_email,listing_type,category,hub");
+        .select("id,name,owner_email,listing_type");
 
       console.log("tools fetch:", toolsData?.length, toolsError?.message);
 
