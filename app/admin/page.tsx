@@ -183,6 +183,8 @@ export default function AdminPage() {
         .from("tools")
         .select("id,name,owner_email,listing_type,category,hub");
 
+      console.log("tools fetch:", toolsData?.length, toolsError?.message);
+
       if (!toolsError && toolsData && isMounted) {
         const typedTools = (toolsData as Tool[]) || [];
         setTools(typedTools);
