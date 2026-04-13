@@ -487,10 +487,10 @@ const p2pPendingBookings = useMemo(
               <h3 className="text-xl font-bold text-slate-900">
                 {b.tool_id ? (
                   <a href={`/tools/${b.tool_id}`} className="hover:text-[#2f641f] hover:underline">
-                    {toolsMap[b.tool_id] || "Unknown Tool"}
+                    {Object.keys(toolsMap).length === 0 ? "Loading..." : (toolsMap[b.tool_id] || "Unknown Tool")}
                   </a>
                 ) : (
-                  toolsMap[b.tool_id || 0] || "Unknown Tool"
+                  Object.keys(toolsMap).length === 0 ? "Loading..." : (toolsMap[b.tool_id || 0] || "Unknown Tool")
                 )}
               </h3>
               {b.tool_id && (
@@ -848,7 +848,6 @@ const p2pPendingBookings = useMemo(
               {[
                 "Block user",
                 "Suspend listing",
-                "Handle dispute",
                 "Review suspicious booking",
                 "Review low-rating pattern",
                 "Promote tool",
@@ -863,6 +862,25 @@ const p2pPendingBookings = useMemo(
                   <ChevronRight className="h-4 w-4" />
                 </button>
               ))}
+              {(() => {
+                const openCount = disputes.filter((d) => d.status === "open").length;
+                return (
+                  <button
+                    onClick={() => document.getElementById("disputes")?.scrollIntoView({ behavior: "smooth" })}
+                    className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    <span>Handle dispute</span>
+                    <div className="flex items-center gap-2">
+                      {openCount > 0 && (
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[11px] font-bold text-white">
+                          {openCount}
+                        </span>
+                      )}
+                      <ChevronRight className="h-4 w-4" />
+                    </div>
+                  </button>
+                );
+              })()}
             </div>
 
             <div className="mt-5 rounded-2xl border border-amber-100 bg-amber-50/80 p-4">
@@ -1002,11 +1020,13 @@ const p2pPendingBookings = useMemo(
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-red-400">Dispute Management</p>
-              <h2 className="mt-1 text-2xl font-bold text-slate-900">
-                ⚠️ Open Disputes{" "}
-                <span className="text-base font-normal text-slate-500">
-                  ({disputes.filter((d) => d.status === "open").length} open)
-                </span>
+              <h2 className="mt-1 flex items-center gap-3 text-2xl font-bold text-slate-900">
+                ⚠️ Open Disputes
+                {disputes.filter((d) => d.status === "open").length > 0 && (
+                  <span className="flex h-7 min-w-[1.75rem] items-center justify-center rounded-full bg-red-500 px-2 text-sm font-bold text-white">
+                    {disputes.filter((d) => d.status === "open").length}
+                  </span>
+                )}
               </h2>
             </div>
           </div>
