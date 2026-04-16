@@ -876,6 +876,7 @@ export default function RenterPage() {
             </button>
           </div>
         ) : (
+          <>
           <div className="grid gap-5">
             {sortedBookings.slice(0, 8).map((b) => (
               <div
@@ -1283,6 +1284,7 @@ export default function RenterPage() {
               </button>
             </div>
           )}
+          </>
         )}
       </div>
     </DashboardShell>
