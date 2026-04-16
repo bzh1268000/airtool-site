@@ -151,6 +151,10 @@ export default function OwnerPage() {
   // Experience points — message conversations (fetched async; rest is derived)
   const [xpMessageConvos, setXpMessageConvos] = useState(0);
 
+  // DB-persisted XP from experience_points table
+  const [dbXp, setDbXp] = useState<number | null>(null);
+  const [xpBreakdown, setXpBreakdown] = useState<{ event_type: string; points: number; booking_id: number; created_at: string }[]>([]);
+
   // Profile panel
   const [showProfile, setShowProfile] = useState(false);
   const [profile, setProfile] = useState<Profile>({});
@@ -318,6 +322,18 @@ export default function OwnerPage() {
 
       setUserEmail(user.email);
       setUserId(user.id);
+
+      // Fetch accumulated XP from DB
+      const { data: xpRows } = await supabase
+        .from("experience_points")
+        .select("event_type, points, booking_id, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+      if (xpRows) {
+        const total = (xpRows as { points: number }[]).reduce((sum, r) => sum + (r.points || 0), 0);
+        setDbXp(total);
+        setXpBreakdown(xpRows as { event_type: string; points: number; booking_id: number; created_at: string }[]);
+      }
 
       const { data: profile, error: profileError } = await supabase
         .from("profiles").select("role").eq("id", user.id).single();
@@ -555,6 +571,21 @@ export default function OwnerPage() {
     return xpMessageConvos + confirms + pickups + returns;
   }, [bookings, xpMessageConvos]);
 
+  // Use DB total when available, fall back to client-side calculation
+  const displayXp = dbXp !== null ? dbXp : ownerXp;
+
+  const xpLevel =
+    displayXp >= 20 ? "Champion" :
+    displayXp >= 10 ? "Trusted"  :
+    displayXp >= 5  ? "Regular"  :
+    "Newcomer";
+
+  const xpBadgeColor =
+    displayXp >= 20 ? "bg-amber-500"  :
+    displayXp >= 10 ? "bg-indigo-600" :
+    displayXp >= 5  ? "bg-blue-500"   :
+    "bg-gray-400";
+
   // ── Lifecycle: mark tool as returned (in_use → return_check) ─────────────────
   const handleMarkReturned = async (b: Booking) => {
     const ok = window.confirm(`Mark booking #${b.id} as returned? This tells the system the renter has handed the tool back.`);
@@ -731,16 +762,72 @@ export default function OwnerPage() {
         </div>
 
         {/* Experience / trust points */}
-        <div className="flex items-center gap-4 rounded-3xl border border-indigo-100 bg-white/30 px-5 py-4 backdrop-blur-md">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white text-xl font-bold shadow">
-            {ownerXp}
+        <div className="rounded-3xl border border-indigo-100 bg-white/30 px-5 py-4 backdrop-blur-md">
+          <div className="flex items-center gap-4">
+            <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${xpBadgeColor} text-white text-2xl font-bold shadow`}>
+              {displayXp}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-gray-900">Experience Points</p>
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${xpBadgeColor}`}>
+                  {xpLevel}
+                </span>
+                {dbXp !== null && (
+                  <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700">
+                    ✓ Live from DB
+                  </span>
+                )}
+              </div>
+              <p className="mt-0.5 text-xs text-gray-500">
+                Earned by messaging renters, confirming bookings, pickups &amp; returns
+              </p>
+            </div>
+            <div className="hidden sm:block shrink-0 text-right">
+              <p className="text-xs text-gray-400">Next level</p>
+              <p className="text-sm font-bold text-indigo-600">
+                {displayXp >= 20 ? "Max reached 🏆" :
+                 displayXp >= 10 ? `${20 - displayXp} XP to Champion` :
+                 displayXp >= 5  ? `${10 - displayXp} XP to Trusted`  :
+                 `${5 - displayXp} XP to Regular`}
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-semibold text-gray-900">Experience Points</p>
-            <p className="text-xs text-gray-500">
-              Earned by messaging renters, confirming bookings, pickups &amp; returns
-            </p>
-          </div>
+
+          {/* XP breakdown — recent events */}
+          {xpBreakdown.length > 0 && (
+            <div className="mt-4 border-t border-indigo-100 pt-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-gray-400">How you earned your XP</p>
+              <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+                {xpBreakdown.slice(0, 6).map((row, i) => (
+                  <div key={i} className="flex items-center justify-between rounded-xl bg-white/60 px-3 py-2 text-xs">
+                    <span className="text-gray-600">
+                      {row.event_type === "booking_confirmed"  && "✅ Booking confirmed"}
+                      {row.event_type === "booking_approved"   && "👍 Booking approved"}
+                      {row.event_type === "booking_in_use"     && "🔧 Tool picked up"}
+                      {row.event_type === "booking_completed"  && "🎉 Rental completed"}
+                      {row.event_type === "booking_disputed"   && "⚠️ Dispute opened"}
+                      {row.event_type === "booking_cancelled"  && "❌ Booking cancelled"}
+                      {row.event_type === "review_written"     && "⭐ Review written"}
+                      {row.event_type === "dispute_won"        && "🏆 Dispute won"}
+                      {row.event_type === "dispute_lost"       && "💔 Dispute lost"}
+                      {!["booking_confirmed","booking_approved","booking_in_use","booking_completed","booking_disputed","booking_cancelled","review_written","dispute_won","dispute_lost"].includes(row.event_type) && row.event_type}
+                      {" "}
+                      <span className="text-gray-400">#{row.booking_id}</span>
+                    </span>
+                    <span className={`ml-2 font-bold ${row.points >= 0 ? "text-green-600" : "text-red-500"}`}>
+                      {row.points >= 0 ? "+" : ""}{row.points} XP
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {xpBreakdown.length > 6 && (
+                <p className="mt-2 text-xs text-gray-400 text-center">
+                  +{xpBreakdown.length - 6} more events · {xpBreakdown.reduce((s, r) => s + r.points, 0)} XP total
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* My Profile button + panel */}
