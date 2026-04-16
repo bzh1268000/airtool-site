@@ -233,6 +233,11 @@ function MyBookingContent({
     const { error } = await supabase
       .from("bookings").update({ status: "confirmed" }).eq("id", booking.id);
     if (error) { alert("Failed to confirm: " + error.message); setConfirming(false); return false; }
+    fetch('/api/xp/award', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ booking_id: booking.id, new_status: 'confirmed' }),
+    })
     setBooking((prev) => prev ? { ...prev, status: "confirmed" } : prev);
     setConfirming(false);
     return true;

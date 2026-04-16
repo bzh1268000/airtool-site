@@ -378,6 +378,42 @@ export default function RenterPage() {
     renterXp >= 5  ? "Regular"  :
     "Newcomer";
 
+  // ── Booking sort: urgent / action-needed first, then most recent ─────────────
+  const sortedBookings = useMemo(() => {
+    const priority = (status: string): number => {
+      switch (status) {
+        case 'disputed':      return 0  // highest — action needed now
+        case 'waiting_renter':
+        case 'waiting_both':  return 1  // renter must act
+        case 'approved':      return 2  // needs confirm + pay
+        case 'confirmed':     return 3  // payment pending
+        case 'in_use':        return 4  // active rental
+        case 'return_check':
+        case 'returning':     return 5  // return in progress
+        case 'pending':
+        case 'waiting_owner':
+        case 'new':           return 6  // waiting on owner
+        case 'review':        return 7  // review needed
+        case 'completed':     return 8  // finished
+        case 'cancelled':
+        case 'declined':
+        case 'rejected':      return 9  // archived — bottom
+        default:              return 6
+      }
+    }
+
+    const sorted = [...bookings].sort((a, b) => {
+      const pd = priority(a.status ?? '') - priority(b.status ?? '')
+      if (pd !== 0) return pd
+      // within same priority: newer end_date first
+      const aDate = new Date(a.end_date || a.created_at || 0).getTime()
+      const bDate = new Date(b.end_date || b.created_at || 0).getTime()
+      return bDate - aDate
+    })
+    console.log('sorted order:', sorted.map(b => `#${b.id} ${b.status}`))
+    return sorted
+  }, [bookings]);
+
   const xpBadgeColor =
     renterXp >= 20 ? "bg-amber-500"  :
     renterXp >= 10 ? "bg-indigo-600" :
@@ -843,7 +879,7 @@ export default function RenterPage() {
           </div>
         ) : (
           <div className="grid gap-5">
-            {bookings.map((b) => (
+            {sortedBookings.map((b) => (
               <div
                 key={b.id}
                 className="rounded-3xl border border-gray-200 bg-white/90 p-6 shadow-sm backdrop-blur"

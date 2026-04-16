@@ -82,6 +82,12 @@ export default function AdminPage() {
       return;
     }
 
+    fetch('/api/xp/award', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ booking_id: bookingId, new_status: 'approved' }),
+    })
+
     setBookings((prev) =>
       prev.map((item) =>
         item.id === bookingId ? { ...item, status: "approved" } : item
@@ -117,6 +123,12 @@ export default function AdminPage() {
       alert("Complete failed");
       return;
     }
+
+    fetch('/api/xp/award', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ booking_id: bookingId, new_status: 'completed' }),
+    })
 
     setBookings((prev) =>
       prev.map((item) =>

@@ -26,7 +26,9 @@ type Booking = {
   id: number;
   tool_id: number | null;
   renter_name?: string | null;
+  user_name?: string | null;
   renter_email?: string | null;
+  user_email?: string | null;
   owner_email?: string | null;
   start_date: string | null;
   end_date: string | null;
@@ -183,7 +185,6 @@ export default function AdminPage() {
         .from("tools")
         .select("id,name,owner_email,listing_type");
 
-      console.log("tools fetch:", toolsData?.length, toolsError?.message);
 
       if (!toolsError && toolsData && isMounted) {
         const typedTools = (toolsData as Tool[]) || [];
@@ -527,7 +528,7 @@ const p2pPendingBookings = useMemo(
             <div className="grid gap-2 text-sm text-slate-600 md:grid-cols-2 xl:grid-cols-3">
               <p>
                 <span className="font-semibold text-slate-900">Renter:</span>{" "}
-                {b.renter_name || "-"}
+                {b.renter_name || b.user_name || "-"}
               </p>
               <p>
                 <span className="font-semibold text-slate-900">Email:</span>{" "}
@@ -596,8 +597,20 @@ const p2pPendingBookings = useMemo(
       }).eq("id", disputeId);
 
       // Map resolution → final booking status
-      const bookingStatus = resolution === "release_to_owner" ? "completed" : "completed";
+      const bookingStatus =
+        resolution === "release_to_owner" ? "completed" :
+        resolution === "partial_refund"   ? "refunded"  :
+        resolution === "full_refund"      ? "refunded"  :
+        "completed";
       await supabase.from("bookings").update({ status: bookingStatus }).eq("id", bookingId);
+
+      if (bookingStatus === "completed") {
+        fetch('/api/xp/award', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ booking_id: bookingId, new_status: bookingStatus }),
+        })
+      }
 
       setDisputes((prev) => prev.map((d) =>
         d.id === disputeId ? { ...d, status: "resolved", resolution, admin_notes: adminNotes.trim() || null } : d
@@ -1012,6 +1025,50 @@ const p2pPendingBookings = useMemo(
               currentTabBookings.slice(0, 8).map((b) => renderBookingCard(b))
             )}
           </div>
+          {currentTabBookings.length > 8 && (
+            <div className="mt-4 flex items-center justify-between">
+              <span className="text-sm text-slate-400">
+                Showing 8 of {currentTabBookings.length} — export for full list
+              </span>
+              <button
+                onClick={() => {
+                  const sorted = [...bookings].sort(
+                    (a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()
+                  );
+                  const headers = ["ID","Tool","Renter","Email","Owner Email","Phone","Start Date","End Date","Preferred Dates","Address","Status","Price Total","Platform Fee","Created At"];
+                  const rows = sorted.map((b) => [
+                    b.id,
+                    toolsMap[b.tool_id ?? 0] || "",
+                    b.renter_name || b.user_name || "",
+                    b.renter_email || b.user_email || "",
+                    b.owner_email || "",
+                    b.phone || "",
+                    b.start_date || "",
+                    b.end_date || "",
+                    b.preferred_dates || "",
+                    b.address || "",
+                    b.status || "",
+                    b.price_total ?? "",
+                    b.platform_fee ?? "",
+                    b.created_at || "",
+                  ]);
+                  const csv = [headers, ...rows]
+                    .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+                    .join("\n");
+                  const blob = new Blob([csv], { type: "text/csv" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = "bookings-export.csv";
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                More… (export all as CSV)
+              </button>
+            </div>
+          )}
         </section>
 
         {/* ── Disputes ── */}
@@ -1034,12 +1091,12 @@ const p2pPendingBookings = useMemo(
           </div>
 
           <div className="mt-6 grid gap-6">
-            {disputes.length === 0 ? (
+            {disputes.filter((d) => d.status !== "resolved").length === 0 ? (
               <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-slate-500">
-                No disputes yet. When an owner raises a dispute it will appear here.
+                No open disputes. When an owner raises a dispute it will appear here.
               </div>
             ) : (
-              disputes.map((d) => (
+              disputes.filter((d) => d.status !== "resolved").map((d) => (
                 <div
                   key={d.id}
                   className={`rounded-[28px] border p-6 ${d.status === "resolved" ? "border-gray-200 bg-gray-50 opacity-80" : "border-red-200 bg-white"}`}
@@ -1120,6 +1177,47 @@ const p2pPendingBookings = useMemo(
               ))
             )}
           </div>
+          {disputes.filter((d) => d.status === "resolved").length > 0 && (
+            <div className="mt-4 flex items-center justify-between">
+              <span className="text-sm text-slate-400">
+                {disputes.filter((d) => d.status === "resolved").length} resolved case{disputes.filter((d) => d.status === "resolved").length !== 1 ? "s" : ""} hidden — click More… to export all
+              </span>
+              <button
+                onClick={() => {
+                  const sorted = [...disputes].sort(
+                    (a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()
+                  );
+                  const headers = ["ID","Booking ID","Owner Email","Renter Email","Reason","Amount Claimed","Status","Resolution","Admin Notes","Created At","Resolved At"];
+                  const rows = sorted.map((d) => [
+                    d.id,
+                    d.booking_id,
+                    d.owner_email || "",
+                    d.renter_email || "",
+                    d.reason || "",
+                    d.amount_claimed ?? "",
+                    d.status || "",
+                    d.resolution || "",
+                    d.admin_notes || "",
+                    d.created_at || "",
+                    d.resolved_at || "",
+                  ]);
+                  const csv = [headers, ...rows]
+                    .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+                    .join("\n");
+                  const blob = new Blob([csv], { type: "text/csv" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = "disputes-export.csv";
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                More… (export all as CSV)
+              </button>
+            </div>
+          )}
         </section>
 
         <section
@@ -1262,6 +1360,19 @@ const p2pPendingBookings = useMemo(
     >
       <FileText className="h-4 w-4" />
       <span>Transactions</span>
+    </button>
+
+    <button
+      onClick={() => scrollToSection("disputes")}
+      className="relative flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+    >
+      <ShieldAlert className="h-4 w-4" />
+      <span>Disputes</span>
+      {disputes.filter((d) => d.status === "open").length > 0 && (
+        <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+          {disputes.filter((d) => d.status === "open").length}
+        </span>
+      )}
     </button>
 
     <button

@@ -571,6 +571,11 @@ export default function OwnerPage() {
     if (!ok) return;
     const { error } = await supabase.from("bookings").update({ status: "completed" }).eq("id", b.id);
     if (error) { alert("Failed: " + error.message); return; }
+    fetch('/api/xp/award', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ booking_id: b.id, new_status: 'completed' }),
+    })
     await sendSystemMessage(b.id, b.user_email, "✅ Return confirmed! Booking is now complete and payment has been released from escrow. Thank you!");
     setBookings((prev) => prev.map((bk) => bk.id === b.id ? { ...bk, status: "completed" } : bk));
   };
@@ -660,6 +665,14 @@ export default function OwnerPage() {
     if (!ok) return;
     const { error } = await supabase.from("bookings").update({ status: newStatus }).eq("id", bookingId);
     if (error) { alert(`Failed: ${error.message}`); return; }
+
+    if (newStatus === "approved" || newStatus === "completed") {
+      fetch('/api/xp/award', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ booking_id: bookingId, new_status: newStatus }),
+      })
+    }
 
     // On approval — email the renter so they know to confirm & pay
     if (newStatus === "approved") {

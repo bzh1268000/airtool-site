@@ -81,6 +81,12 @@ const handleApprove = async (bookingId: number) => {
     return;
   }
 
+  fetch('/api/xp/award', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ booking_id: bookingId, new_status: 'approved' }),
+  })
+
   const approvedBooking = bookings.find((item) => item.id === bookingId);
 
   setBookings((prev) =>
@@ -139,6 +145,12 @@ const handleApprove = async (bookingId: number) => {
       alert("Complete failed");
       return;
     }
+
+    fetch('/api/xp/award', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ booking_id: bookingId, new_status: 'completed' }),
+    })
 
     setBookings((prev) =>
       prev.map((item) =>

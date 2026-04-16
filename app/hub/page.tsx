@@ -377,6 +377,14 @@ export default function HubPage() {
       return;
     }
 
+    if (['completed', 'approved', 'confirmed', 'in_use', 'disputed'].includes(nextStatus)) {
+      fetch('/api/xp/award', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ booking_id: bookingId, new_status: nextStatus }),
+      })
+    }
+
     setBookings((prev) =>
       prev.map((b) => (b.id === bookingId ? { ...b, status: nextStatus } : b))
     );

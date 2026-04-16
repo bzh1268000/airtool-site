@@ -43,6 +43,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: updateErr.message }, { status: 500 });
     }
 
+    fetch(new URL('/api/xp/award', req.url).toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ booking_id: Number(bookingId), new_status: 'disputed' }),
+    })
+
     return NextResponse.json({ success: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
