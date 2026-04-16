@@ -3,68 +3,104 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { User, UserRound, Menu, X } from "lucide-react";
+import { User, UserRound, Menu, X, LayoutDashboard } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 
 export default function Navbar() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser]     = useState<any>(null);
+  const [role, setRole]     = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    const getUser = async () => {
+    const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
+      if (user) fetchRole(user.id);
     };
-    getUser();
+    init();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user ?? null);
+      if (session?.user) fetchRole(session.user.id);
+      else setRole(null);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
+  const fetchRole = async (uid: string) => {
+    const { data } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", uid)
+      .single();
+    setRole(data?.role ?? "renter");
+  };
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     setUser(null);
+    setRole(null);
     router.push("/");
     router.refresh();
   };
 
+  const dashboardUrl =
+    !user        ? "/login"  :
+    role === "admin" ? "/admin"  :
+    role === "hub"   ? "/hub"    :
+    role === "owner" ? "/owner"  :
+    "/renter";
+
   return (
     <header className="border-b bg-[#eaf6ff] relative z-50">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 md:px-6 md:py-4">
-        
+
         <Link href="/" className="text-2xl md:text-3xl font-semibold text-black leading-none">
           AirTool
         </Link>
 
         {/* Desktop nav */}
         <nav className="hidden items-center gap-10 md:flex">
-          <Link href="/search" className="text-sm text-black/70 hover:text-black">Search</Link>
+          <Link href="/search"     className="text-sm text-black/70 hover:text-black">Search</Link>
           <Link href="/categories" className="text-sm text-black/70 hover:text-black">Categories</Link>
-          <Link href="/tools" className="text-sm text-black/70 hover:text-black">List Tool</Link>
+          <Link href="/tools"      className="text-sm text-black/70 hover:text-black">List Tool</Link>
         </nav>
 
         <div className="flex items-center gap-2 md:gap-3">
-          <Link
-            href={user ? "/profile" : "/login"}
-            className={`flex h-10 w-10 md:h-11 md:w-11 items-center justify-center rounded-full border transition ${
-              user ? "border-[#8bbb46] bg-[#8bbb46] text-white" : "border-black/15 bg-white text-[#23313f]"
-            }`}
-          >
-            {user ? <UserRound className="h-5 w-5" /> : <User className="h-5 w-5" />}
-          </Link>
 
-          {user && (
-            <button
-              onClick={handleSignOut}
-              className="hidden md:block rounded-full border border-black/15 bg-white px-4 py-2 text-sm text-black/70 hover:bg-black/5"
-            >
-              Sign out
-            </button>
-          )}
+          {/* People icon — signs out if logged in, goes to login if not */}
+          <div className="relative group">
+            {user ? (
+              <button
+                onClick={handleSignOut}
+                className="flex h-10 w-10 md:h-11 md:w-11 items-center justify-center rounded-full border border-[#8bbb46] bg-[#8bbb46] text-white transition hover:bg-[#7aaa39]"
+              >
+                <UserRound className="h-5 w-5" />
+              </button>
+            ) : (
+              <Link
+                href="/login"
+                className="flex h-10 w-10 md:h-11 md:w-11 items-center justify-center rounded-full border border-black/15 bg-white text-[#23313f] transition hover:bg-black/5"
+              >
+                <User className="h-5 w-5" />
+              </Link>
+            )}
+            {/* Tooltip */}
+            <span className="pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-gray-800 px-2.5 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 z-50">
+              {user ? "Sign out here" : "Sign in please"}
+            </span>
+          </div>
+
+          {/* Dashboard button */}
+          <Link
+            href={dashboardUrl}
+            className="hidden md:flex items-center gap-1.5 rounded-full bg-[#2f641f] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#245018]"
+          >
+            <LayoutDashboard className="h-4 w-4" />
+            Dashboard
+          </Link>
 
           {/* Hamburger — mobile only */}
           <button
@@ -80,9 +116,17 @@ export default function Navbar() {
       {/* Mobile dropdown */}
       {menuOpen && (
         <div className="md:hidden border-t border-black/10 bg-white px-4 py-4 flex flex-col gap-4">
-          <Link href="/search" onClick={() => setMenuOpen(false)} className="text-sm text-black/70 hover:text-black">Search</Link>
+          <Link href="/search"     onClick={() => setMenuOpen(false)} className="text-sm text-black/70 hover:text-black">Search</Link>
           <Link href="/categories" onClick={() => setMenuOpen(false)} className="text-sm text-black/70 hover:text-black">Categories</Link>
-          <Link href="/tools" onClick={() => setMenuOpen(false)} className="text-sm text-black/70 hover:text-black">List Tool</Link>
+          <Link href="/tools"      onClick={() => setMenuOpen(false)} className="text-sm text-black/70 hover:text-black">List Tool</Link>
+          <Link
+            href={dashboardUrl}
+            onClick={() => setMenuOpen(false)}
+            className="flex items-center gap-2 rounded-full bg-[#2f641f] px-4 py-2 text-sm font-semibold text-white w-fit"
+          >
+            <LayoutDashboard className="h-4 w-4" />
+            Dashboard
+          </Link>
           {user && (
             <button
               onClick={() => { handleSignOut(); setMenuOpen(false); }}
