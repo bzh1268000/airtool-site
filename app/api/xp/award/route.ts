@@ -110,7 +110,10 @@ export async function POST(req: Request) {
 
     const { error: xpErr } = await supabase
       .from('experience_points')
-      .insert(inserts)
+      .upsert(inserts, {
+        onConflict: 'user_id,booking_id,event_type',
+        ignoreDuplicates: true,
+      })
 
     if (xpErr) {
       console.error('XP insert error:', xpErr)
