@@ -402,7 +402,7 @@ export default function RenterPage() {
       }
     }
 
-    const sorted = [...bookings].sort((a, b) => {
+    return [...bookings].sort((a, b) => {
       const pd = priority(a.status ?? '') - priority(b.status ?? '')
       if (pd !== 0) return pd
       // within same priority: newer end_date first
@@ -410,8 +410,6 @@ export default function RenterPage() {
       const bDate = new Date(b.end_date || b.created_at || 0).getTime()
       return bDate - aDate
     })
-    console.log('sorted order:', sorted.map(b => `#${b.id} ${b.status}`))
-    return sorted
   }, [bookings]);
 
   const xpBadgeColor =
