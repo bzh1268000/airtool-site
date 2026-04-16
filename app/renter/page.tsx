@@ -877,7 +877,7 @@ export default function RenterPage() {
           </div>
         ) : (
           <div className="grid gap-5">
-            {sortedBookings.map((b) => (
+            {sortedBookings.slice(0, 8).map((b) => (
               <div
                 key={b.id}
                 className="rounded-3xl border border-gray-200 bg-white/90 p-6 shadow-sm backdrop-blur"
@@ -1244,6 +1244,45 @@ export default function RenterPage() {
               </div>
             ))}
           </div>
+          {sortedBookings.length > 8 && (
+            <div className="mt-4 flex items-center justify-between">
+              <span className="text-sm text-gray-400">
+                Showing 8 of {sortedBookings.length} bookings — export for full history
+              </span>
+              <button
+                onClick={() => {
+                  const headers = ["ID","Tool","Status","Start Date","End Date","Preferred Dates","Price Total","Platform Fee","Phone","Address","Message","Created At"];
+                  const rows = sortedBookings.map((b) => [
+                    b.id,
+                    toolsMap[b.tool_id || 0] || "",
+                    b.status || "",
+                    b.start_date || "",
+                    b.end_date || "",
+                    b.preferred_dates || "",
+                    b.price_total ?? "",
+                    b.platform_fee ?? "",
+                    b.phone || "",
+                    b.address || "",
+                    b.message || "",
+                    b.created_at || "",
+                  ]);
+                  const csv = [headers, ...rows]
+                    .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+                    .join("\n");
+                  const blob = new Blob([csv], { type: "text/csv" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = "my-bookings.csv";
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                More… (export all as CSV)
+              </button>
+            </div>
+          )}
         )}
       </div>
     </DashboardShell>
