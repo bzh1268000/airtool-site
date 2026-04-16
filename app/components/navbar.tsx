@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "next/link"; // still used for nav links
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { User, UserRound, Menu, X, LayoutDashboard } from "lucide-react";
@@ -46,12 +46,26 @@ export default function Navbar() {
     router.refresh();
   };
 
-  const dashboardUrl =
-    !user        ? "/login"  :
-    role === "admin" ? "/admin"  :
-    role === "hub"   ? "/hub"    :
-    role === "owner" ? "/owner"  :
-    "/renter";
+  // Fresh live lookup — never depends on stale React state
+  const handleDashboard = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.id) {
+      router.push("/login");
+      return;
+    }
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+    const role = profile?.role ?? "renter";
+    const url =
+      role === "admin" ? "/admin"  :
+      role === "hub"   ? "/hub"    :
+      role === "owner" ? "/owner"  :
+      "/renter";
+    router.push(url);
+  };
 
   return (
     <header className="border-b bg-[#eaf6ff] relative z-50">
@@ -94,13 +108,13 @@ export default function Navbar() {
           </div>
 
           {/* Dashboard button */}
-          <Link
-            href={dashboardUrl}
+          <button
+            onClick={handleDashboard}
             className="hidden md:flex items-center gap-1.5 rounded-full bg-[#2f641f] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#245018]"
           >
             <LayoutDashboard className="h-4 w-4" />
             Dashboard
-          </Link>
+          </button>
 
           {/* Hamburger — mobile only */}
           <button
@@ -119,14 +133,13 @@ export default function Navbar() {
           <Link href="/search"     onClick={() => setMenuOpen(false)} className="text-sm text-black/70 hover:text-black">Search</Link>
           <Link href="/categories" onClick={() => setMenuOpen(false)} className="text-sm text-black/70 hover:text-black">Categories</Link>
           <Link href="/tools"      onClick={() => setMenuOpen(false)} className="text-sm text-black/70 hover:text-black">List Tool</Link>
-          <Link
-            href={dashboardUrl}
-            onClick={() => setMenuOpen(false)}
+          <button
+            onClick={() => { handleDashboard(); setMenuOpen(false); }}
             className="flex items-center gap-2 rounded-full bg-[#2f641f] px-4 py-2 text-sm font-semibold text-white w-fit"
           >
             <LayoutDashboard className="h-4 w-4" />
             Dashboard
-          </Link>
+          </button>
           {user && (
             <button
               onClick={() => { handleSignOut(); setMenuOpen(false); }}
