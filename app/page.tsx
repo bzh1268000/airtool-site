@@ -303,13 +303,13 @@ const { data, error } = await supabase
                   key={tool.id}
                   className="overflow-hidden border border-black/5 bg-white shadow-sm hover:-translate-y-1 hover:shadow-md transition"
                 >
-                  <div className="aspect-[4/3] bg-[#eef2ea]">
+                  <a href={`/tools/${tool.id}`} className="block aspect-[4/3] bg-[#eef2ea] overflow-hidden">
                     <img
                       src={tool.image_url || "/sky.jpg"}
                       alt={tool.name}
-                      className="h-full w-full object-cover"
+                      className="h-full w-full object-cover transition hover:scale-105"
                     />
-                  </div>
+                  </a>
 
                   <div className="p-4">
                     <div className="text-lg font-semibold">{tool.name}</div>

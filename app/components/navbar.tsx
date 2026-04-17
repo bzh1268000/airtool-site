@@ -13,14 +13,13 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-      if (user) fetchRole(user.id);
-    };
-    init();
+    // getSession() reads from cookies immediately — no network round-trip, no flash.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      if (session?.user) fetchRole(session.user.id);
+    });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) fetchRole(session.user.id);
       else setRole(null);
@@ -48,7 +47,8 @@ export default function Navbar() {
 
   // Fresh live lookup — never depends on stale React state
   const handleDashboard = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user ?? null;
     if (!user?.id) {
       router.push("/login");
       return;

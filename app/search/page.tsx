@@ -24,6 +24,7 @@ type ToolRow = {
   hub_id?: string | null;
   category_id?: string | null;
   status?: string | null;
+  owner_email?: string | null;
 };
 
 function SearchContent() {
@@ -44,6 +45,7 @@ function SearchContent() {
   const [matchedTools, setMatchedTools] = useState<ToolRow[]>([]);
   const [nearbyTools, setNearbyTools] = useState<ToolRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reviewStats, setReviewStats] = useState<Record<number, { count: number; avg: number }>>({});
 
   useEffect(() => {
     const loadFilters = async () => {
@@ -88,7 +90,7 @@ function SearchContent() {
 let query = supabase
   .from("tools")
   .select(
-    "id, name, description, price_per_day, image_url, listing_type, hub_id, category_id, status"
+    "id, name, description, price_per_day, image_url, listing_type, hub_id, category_id, status, owner_email"
   );
       if (searchTool.trim()) {
         query = query.ilike("name", `%${searchTool.trim()}%`);
@@ -108,6 +110,28 @@ let query = supabase
 
       if (!error && data) {
         setMatchedTools(data as ToolRow[]);
+        // Fetch review stats for visible tools
+        const ids = (data as ToolRow[]).map((t) => t.id);
+        if (ids.length > 0) {
+          const { data: revRows } = await supabase
+            .from("reviews")
+            .select("target_id, rating")
+            .in("target_id", ids)
+            .eq("target_type", "tool");
+          if (revRows) {
+            const stats: Record<number, { count: number; sum: number }> = {};
+            (revRows as { target_id: number; rating: number }[]).forEach((r) => {
+              if (!stats[r.target_id]) stats[r.target_id] = { count: 0, sum: 0 };
+              stats[r.target_id].count++;
+              stats[r.target_id].sum += r.rating;
+            });
+            const computed: Record<number, { count: number; avg: number }> = {};
+            Object.entries(stats).forEach(([id, s]) => {
+              computed[Number(id)] = { count: s.count, avg: s.sum / s.count };
+            });
+            setReviewStats(computed);
+          }
+        }
       } else {
         setMatchedTools([]);
       }
@@ -123,7 +147,7 @@ let query = supabase
 let query = supabase
   .from("tools")
   .select(
-    "id, name, description, price_per_day, image_url, listing_type, hub_id, category_id, status"
+    "id, name, description, price_per_day, image_url, listing_type, hub_id, category_id, status, owner_email"
   );
       if (selectedHubId && selectedHubId !== "nearest") {
         query = query.eq("hub_id", selectedHubId);
@@ -168,52 +192,79 @@ let query = supabase
     return `$${price}/day`;
   };
 
-  const ToolCard = ({ tool }: { tool: ToolRow }) => (
-    <div className="overflow-hidden border border-black/5 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-md">
-      <div className="aspect-[4/3] bg-[#eef2ea]">
-        <img
-          src={tool.image_url || "/sky.jpg"}
-          alt={tool.name}
-          className="h-full w-full object-cover"
-        />
-      </div>
+  const ToolCard = ({ tool }: { tool: ToolRow }) => {
+    const stats = reviewStats[tool.id];
+    const ownerName = tool.owner_email
+      ? tool.owner_email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+      : null;
+    return (
+      <div className="overflow-hidden border border-black/5 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-md">
+        <a href={`/tools/${tool.id}`} className="block aspect-[4/3] bg-[#eef2ea] overflow-hidden">
+          <img
+            src={tool.image_url || "/sky.jpg"}
+            alt={tool.name}
+            className="h-full w-full object-cover transition hover:scale-105"
+          />
+        </a>
 
-      <div className="p-4">
-        <div className="text-lg font-semibold">{tool.name}</div>
+        <div className="p-4">
+          <div className="text-lg font-semibold">{tool.name}</div>
 
-        <div className="mt-2 text-sm text-black/60">
-          {`${selectedHubName} pickup`}
-        </div>
-
-        {tool.description ? (
-          <div className="mt-2 line-clamp-2 text-sm text-black/50">
-            {tool.description}
+          <div className="mt-1 text-sm text-black/60">
+            {`${selectedHubName} pickup`}
           </div>
-        ) : null}
 
-        <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em]">
-          {tool.listing_type === "hub" ? (
-            <span className="bg-green-100 px-2 py-1 text-green-700">Hub pickup</span>
-          ) : (
-            <span className="bg-blue-100 px-2 py-1 text-blue-700">Owner approval</span>
-          )}
-        </div>
-
-        <div className="mt-4 flex items-center justify-between">
-          <span className="font-semibold text-[#2f641f]">
-            {formatPrice(tool.price_per_day)}
-          </span>
-
+          {/* Owner name + rating points — clickable to tool ratings page */}
           <button
-            onClick={() => router.push(`/booking/${tool.id}`)}
-            className="bg-[#8bbb46] px-3 py-2 text-xs font-semibold text-white"
+            onClick={() => router.push(`/tools/${tool.id}/reviews`)}
+            className="mt-2 flex items-center gap-1.5 hover:opacity-80 text-left"
           >
-            Book
+            {ownerName && (
+              <span className="text-xs font-semibold text-gray-600">{ownerName}</span>
+            )}
+            {stats ? (
+              <>
+                <span className="text-xs text-black/30">·</span>
+                <span className="flex items-center gap-0.5 text-orange-400 text-xs">
+                  {"★".repeat(Math.round(stats.avg))}{"☆".repeat(5 - Math.round(stats.avg))}
+                </span>
+                <span className="text-xs text-black/40">({stats.count})</span>
+              </>
+            ) : ownerName ? (
+              <span className="text-xs text-black/30">· No ratings yet</span>
+            ) : null}
           </button>
+
+          {tool.description ? (
+            <div className="mt-2 line-clamp-2 text-sm text-black/50">
+              {tool.description}
+            </div>
+          ) : null}
+
+          <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em]">
+            {tool.listing_type === "hub" ? (
+              <span className="bg-green-100 px-2 py-1 text-green-700">Hub pickup</span>
+            ) : (
+              <span className="bg-blue-100 px-2 py-1 text-blue-700">Owner approval</span>
+            )}
+          </div>
+
+          <div className="mt-4 flex items-center justify-between">
+            <span className="font-semibold text-[#2f641f]">
+              {formatPrice(tool.price_per_day)}
+            </span>
+
+            <button
+              onClick={() => router.push(`/booking/${tool.id}`)}
+              className="bg-[#8bbb46] px-3 py-2 text-xs font-semibold text-white"
+            >
+              Book
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="min-h-screen bg-[#f7f7f2] text-[#1b1b1b]">

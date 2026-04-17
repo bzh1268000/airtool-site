@@ -49,6 +49,12 @@ function LoginContent() {
     const role = profile?.role;
     setStatus("Redirecting...");
 
+    // Cache user identity for instant back-navigation restore
+    try {
+      const { data: { user: u } } = await supabase.auth.getUser();
+      if (u) sessionStorage.setItem("airtool_user", JSON.stringify({ id: u.id, email: u.email }));
+    } catch {}
+
     if (redirectTo) {
       router.push(redirectTo);
       return;

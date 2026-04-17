@@ -14,12 +14,13 @@ const XP_FALLBACKS: Record<string, number> = {
 }
 
 const STATUS_EVENTS: Record<string, { renter?: string; owner?: string }> = {
-  confirmed:  { renter: 'booking_confirmed' },
-  approved:   { owner:  'booking_approved'  },
-  in_use:     { renter: 'booking_in_use',    owner: 'booking_in_use'    },
-  completed:  { renter: 'booking_completed', owner: 'booking_completed' },
-  disputed:   { renter: 'booking_disputed',  owner: 'booking_disputed'  },
-  cancelled:  { renter: 'booking_cancelled', owner: 'booking_cancelled' },
+  confirmed:      { renter: 'booking_confirmed' },
+  approved:       { owner:  'booking_approved'  },
+  in_use:         { renter: 'booking_in_use',    owner: 'booking_in_use'    },
+  completed:      { renter: 'booking_completed', owner: 'booking_completed' },
+  disputed:       { renter: 'booking_disputed',  owner: 'booking_disputed'  },
+  cancelled:      { renter: 'booking_cancelled', owner: 'booking_cancelled' },
+  review_written: { renter: 'review_written' },
 }
 
 export async function POST(req: Request) {

@@ -48,6 +48,13 @@ type Tool = {
   name: string | null;
 };
 
+type Review = {
+  booking_id: number;
+  rating: number;
+  content: string | null;
+  created_at: string | null;
+};
+
 type Profile = {
   full_name?: string | null;
   phone?: string | null;
@@ -131,6 +138,7 @@ export default function RenterPage() {
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewMsg, setReviewMsg] = useState("");
   const [reviewedBookingIds, setReviewedBookingIds] = useState<Set<number>>(new Set());
+  const [reviewsMap, setReviewsMap] = useState<Record<number, Review>>({});
 
   // Unread messages
   const [unreadCount, setUnreadCount] = useState(0);
@@ -150,25 +158,9 @@ export default function RenterPage() {
   const [disputesMap, setDisputesMap] = useState<Record<number, DisputeRecord>>({});
 
   useEffect(() => {
-    const fetchRenterData = async () => {
+    const fetchRenterData = async (user: any) => {
       setLoading(true);
       setErrorText("");
-
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-      if (!user) {
-        router.replace("/login");
-        return;
-      }
-      if (authError) {
-        setErrorText(authError.message);
-        setLoading(false);
-        return;
-      }
-      if (!user?.email) {
-        router.replace("/login");
-        return;
-      }
 
       setUserEmail(user.email);
       setUserId(user.id);
@@ -248,19 +240,33 @@ export default function RenterPage() {
 
       const { data: existingReviews } = await supabase
         .from("reviews")
-        .select("booking_id")
+        .select("booking_id, rating, content, created_at")
         .eq("reviewer_id", user.id);
 
       if (existingReviews) {
         setReviewedBookingIds(
           new Set(existingReviews.map((r) => Number(r.booking_id)))
         );
+        const map: Record<number, Review> = {};
+        (existingReviews as Review[]).forEach((r) => { map[Number(r.booking_id)] = r; });
+        setReviewsMap(map);
       }
 
       setLoading(false);
     };
 
-    fetchRenterData();
+    let cancelled = false;
+
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled) return;
+      if (session?.user) {
+        fetchRenterData(session.user);
+      } else if (event === "SIGNED_OUT") {
+        router.replace("/login");
+      }
+    });
+
+    return () => { cancelled = true; };
   }, [router]);
 
   // Re-query unread count on demand
@@ -285,6 +291,16 @@ export default function RenterPage() {
       window.removeEventListener("focus", handleFocus);
       clearInterval(interval);
     };
+  }, [userEmail]);
+
+  useEffect(() => {
+    const handlePageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        fetchUnreadCount();
+      }
+    };
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
   }, [userEmail]);
 
   const loadProfile = async () => {
@@ -492,7 +508,17 @@ export default function RenterPage() {
       return;
     }
 
+    fetch('/api/xp/award', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ booking_id: booking.id, new_status: 'review_written' }),
+    })
+
     setReviewedBookingIds((prev) => new Set([...prev, booking.id]));
+    setReviewsMap((prev) => ({
+      ...prev,
+      [booking.id]: { booking_id: booking.id, rating: reviewScore, content: reviewContent.trim() || null, created_at: new Date().toISOString() },
+    }));
     setReviewingBookingId(null);
     setReviewScore(0);
     setReviewContent("");
@@ -661,73 +687,104 @@ export default function RenterPage() {
           </div>
         </div>
 
-        {/* Experience / trust points */}
-        <div className="rounded-3xl border border-indigo-100 bg-white/30 px-5 py-4 backdrop-blur-md">
-          <div className="flex items-center gap-4">
-            <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${xpBadgeColor} text-white text-2xl font-bold shadow`}>
-              {displayXp}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-semibold text-gray-900">Experience Points</p>
-                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${xpBadgeColor}`}>
-                  {xpLevel}
-                </span>
-                {dbXp !== null && (
-                  <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700">
-                    ✓ Live from DB
+        {/* Points panels */}
+        <div className="grid gap-4 sm:grid-cols-3">
+
+          {/* Trust Score */}
+          <div className="rounded-3xl border border-indigo-100 bg-white/30 px-5 py-4 backdrop-blur-md sm:col-span-3">
+            <div className="flex items-center gap-4">
+              <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${xpBadgeColor} text-white text-2xl font-bold shadow`}>
+                {displayXp}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-semibold text-gray-900">Trust Score</p>
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${xpBadgeColor}`}>
+                    {xpLevel}
                   </span>
+                  {dbXp !== null && (
+                    <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700">
+                      ✓ Live
+                    </span>
+                  )}
+                </div>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  Earned by confirming bookings, completing rentals &amp; more
+                </p>
+              </div>
+              <div className="hidden sm:block shrink-0 text-right">
+                <p className="text-xs text-gray-400">Next level</p>
+                <p className="text-sm font-bold text-indigo-600">
+                  {displayXp >= 20 ? "Max reached 🏆" :
+                   displayXp >= 10 ? `${20 - displayXp} pts to Champion` :
+                   displayXp >= 5  ? `${10 - displayXp} pts to Trusted`  :
+                   `${5 - displayXp} pts to Regular`}
+                </p>
+              </div>
+            </div>
+
+            {/* Trust Score breakdown — recent events */}
+            {xpBreakdown.length > 0 && (
+              <div className="mt-4 border-t border-indigo-100 pt-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-gray-400">How you earned your Trust Score</p>
+                <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+                  {xpBreakdown.slice(0, 6).map((row, i) => (
+                    <div key={i} className="flex items-center justify-between rounded-xl bg-white/60 px-3 py-2 text-xs">
+                      <span className="text-gray-600">
+                        {row.event_type === "booking_confirmed"  && "✅ Booking confirmed"}
+                        {row.event_type === "booking_approved"   && "👍 Booking approved"}
+                        {row.event_type === "booking_in_use"     && "🔧 Tool picked up"}
+                        {row.event_type === "booking_completed"  && "🎉 Rental completed"}
+                        {row.event_type === "booking_disputed"   && "⚠️ Dispute opened"}
+                        {row.event_type === "booking_cancelled"  && "❌ Booking cancelled"}
+                        {row.event_type === "review_written"     && "⭐ Review written"}
+                        {row.event_type === "dispute_won"        && "🏆 Dispute won"}
+                        {row.event_type === "dispute_lost"       && "💔 Dispute lost"}
+                        {!["booking_confirmed","booking_approved","booking_in_use","booking_completed","booking_disputed","booking_cancelled","review_written","dispute_won","dispute_lost"].includes(row.event_type) && row.event_type}
+                        {" "}
+                        <span className="text-gray-400">#{row.booking_id}</span>
+                      </span>
+                      <span className={`ml-2 font-bold ${row.points >= 0 ? "text-green-600" : "text-red-500"}`}>
+                        {row.points >= 0 ? "+" : ""}{row.points} pts
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {xpBreakdown.length > 6 && (
+                  <p className="mt-2 text-xs text-gray-400 text-center">
+                    +{xpBreakdown.length - 6} more events · {xpBreakdown.reduce((s, r) => s + r.points, 0)} pts total
+                  </p>
                 )}
               </div>
-              <p className="mt-0.5 text-xs text-gray-500">
-                Earned by confirming bookings, completing rentals, writing reviews &amp; more
-              </p>
-            </div>
-            <div className="hidden sm:block shrink-0 text-right">
-              <p className="text-xs text-gray-400">Next level</p>
-              <p className="text-sm font-bold text-indigo-600">
-                {displayXp >= 20 ? "Max reached 🏆" :
-                 displayXp >= 10 ? `${20 - displayXp} XP to Champion` :
-                 displayXp >= 5  ? `${10 - displayXp} XP to Trusted`  :
-                 `${5 - displayXp} XP to Regular`}
-              </p>
+            )}
+          </div>
+
+          {/* Tool Points */}
+          <div className="rounded-3xl border border-yellow-100 bg-white/30 px-5 py-4 backdrop-blur-md">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-yellow-400 text-white text-xl font-bold shadow">
+                {reviewedBookingIds.size}
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Tool Points</p>
+                <p className="mt-0.5 text-xs text-gray-500">Tools you have reviewed</p>
+              </div>
             </div>
           </div>
 
-          {/* XP breakdown — recent events */}
-          {xpBreakdown.length > 0 && (
-            <div className="mt-4 border-t border-indigo-100 pt-4">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-gray-400">How you earned your XP</p>
-              <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
-                {xpBreakdown.slice(0, 6).map((row, i) => (
-                  <div key={i} className="flex items-center justify-between rounded-xl bg-white/60 px-3 py-2 text-xs">
-                    <span className="text-gray-600">
-                      {row.event_type === "booking_confirmed"  && "✅ Booking confirmed"}
-                      {row.event_type === "booking_approved"   && "👍 Booking approved"}
-                      {row.event_type === "booking_in_use"     && "🔧 Tool picked up"}
-                      {row.event_type === "booking_completed"  && "🎉 Rental completed"}
-                      {row.event_type === "booking_disputed"   && "⚠️ Dispute opened"}
-                      {row.event_type === "booking_cancelled"  && "❌ Booking cancelled"}
-                      {row.event_type === "review_written"     && "⭐ Review written"}
-                      {row.event_type === "dispute_won"        && "🏆 Dispute won"}
-                      {row.event_type === "dispute_lost"       && "💔 Dispute lost"}
-                      {!["booking_confirmed","booking_approved","booking_in_use","booking_completed","booking_disputed","booking_cancelled","review_written","dispute_won","dispute_lost"].includes(row.event_type) && row.event_type}
-                      {" "}
-                      <span className="text-gray-400">#{row.booking_id}</span>
-                    </span>
-                    <span className={`ml-2 font-bold ${row.points >= 0 ? "text-green-600" : "text-red-500"}`}>
-                      {row.points >= 0 ? "+" : ""}{row.points} XP
-                    </span>
-                  </div>
-                ))}
+          {/* Community Points — coming soon */}
+          <div className="rounded-3xl border border-dashed border-gray-200 bg-white/20 px-5 py-4 backdrop-blur-md sm:col-span-2 opacity-60">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gray-300 text-white text-xl font-bold shadow">
+                🔒
               </div>
-              {xpBreakdown.length > 6 && (
-                <p className="mt-2 text-xs text-gray-400 text-center">
-                  +{xpBreakdown.length - 6} more events · {xpBreakdown.reduce((s, r) => s + r.points, 0)} XP total
-                </p>
-              )}
+              <div>
+                <p className="text-sm font-semibold text-gray-700">Community Points</p>
+                <p className="mt-0.5 text-xs text-gray-400">Coming soon — earn points by helping grow the AirTool community</p>
+              </div>
             </div>
-          )}
+          </div>
+
         </div>
 
         {/* Action buttons */}
@@ -1110,7 +1167,7 @@ export default function RenterPage() {
                   )}
 
                   {/* Withdraw confirmation button */}
-                  {b.renter_confirmed && b.status !== "confirmed" && (
+                  {b.renter_confirmed && b.status !== "confirmed" && !b.paid_at && (
                     cancelConfirmBookingId === b.id ? (
                       <div className="flex w-full flex-col gap-2 rounded-2xl border border-orange-200 bg-orange-50 p-3">
                         <p className="text-sm font-semibold text-orange-800">Withdraw confirmation?</p>
@@ -1175,9 +1232,21 @@ export default function RenterPage() {
                   {/* Review button — only for completed bookings */}
                   {b.status === "completed" && (
                     reviewedBookingIds.has(b.id) ? (
-                      <span className="inline-flex items-center gap-1 rounded-2xl bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-500">
-                        Reviewed ✓
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <span className="inline-flex items-center gap-1 rounded-2xl bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-500">
+                          Reviewed ✓
+                        </span>
+                        {reviewsMap[b.id] && (
+                          <div className="mt-1 rounded-2xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm">
+                            <div className="flex items-center gap-0.5 text-yellow-400 text-base">
+                              {[1,2,3,4,5].map(s => <span key={s}>{s <= reviewsMap[b.id].rating ? "★" : "☆"}</span>)}
+                            </div>
+                            {reviewsMap[b.id].content && (
+                              <p className="mt-1 text-gray-700">{reviewsMap[b.id].content}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <button
                         onClick={() => {
@@ -1239,7 +1308,9 @@ export default function RenterPage() {
 
                     {/* Photos */}
                     <div>
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-gray-500">Photos</p>
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-gray-500">
+                        Photos <span className="normal-case font-normal text-gray-400">(optional)</span>
+                      </p>
                       <input
                         type="file"
                         accept="image/*"
@@ -1261,7 +1332,7 @@ export default function RenterPage() {
                     {/* Video */}
                     <div>
                       <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-gray-500">
-                        Short Video <span className="normal-case font-normal text-gray-400">(encouraged)</span>
+                        Short Video <span className="normal-case font-normal text-gray-400">(optional)</span>
                       </p>
                       <input
                         type="file"

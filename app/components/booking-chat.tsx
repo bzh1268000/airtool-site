@@ -29,10 +29,17 @@ type Props = {
   bookingId: number;
   myEmail: string;
   otherEmail: string;
+  otherName?: string;
   label?: string;
 };
 
-export default function BookingChat({ bookingId, myEmail, otherEmail, label = "ðŸ’¬ Messages" }: Props) {
+function displayName(name: string | undefined, email: string): string {
+  if (name) return name;
+  const local = email.split("@")[0];
+  return local.charAt(0).toUpperCase() + local.slice(1);
+}
+
+export default function BookingChat({ bookingId, myEmail, otherEmail, otherName, label = "ðŸ’¬ Messages" }: Props) {
   const [open, setOpen]           = useState(false);
   const [messages, setMessages]   = useState<MessageRow[]>([]);
   const [text, setText]           = useState("");
@@ -199,7 +206,7 @@ export default function BookingChat({ bookingId, myEmail, otherEmail, label = "ð
               <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#8bbb46]">
                 Booking #{bookingId} â€” Chat
               </p>
-              <p className="mt-0.5 text-xs text-black/40">{otherEmail}</p>
+              <p className="mt-0.5 text-xs text-black/40">{displayName(otherName, otherEmail)}</p>
             </div>
             <button
               onClick={closeChat}
@@ -221,7 +228,7 @@ export default function BookingChat({ bookingId, myEmail, otherEmail, label = "ð
                 return (
                   <div key={m.id} className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}>
                     <div className="mb-0.5 px-1 text-[10px] text-black/35">
-                      {isMe ? "You" : m.sender_email}
+                      {isMe ? "You" : displayName(otherName, otherEmail)}
                     </div>
                     <div className={`max-w-[85%] rounded-[16px] px-3 py-2 shadow-sm text-sm leading-5 ${
                       isMe

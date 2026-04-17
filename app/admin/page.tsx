@@ -147,37 +147,17 @@ export default function AdminPage() {
 
   useEffect(() => {
     let isMounted = true;
+    let authedUser: any = null;
 
     const fetchAdminData = async (showLoading = false) => {
+      if (!authedUser) return;
+      const user = authedUser;
       if (showLoading) setLoading(true);
       setErrorText("");
 
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
-
-      if (authError) {
-        if (isMounted) {
-          setErrorText(authError.message);
-          setLoading(false);
-        }
-        return;
-      }
-
-     if (!user?.id) {
-  router.replace("/login");
-  return;
-}
-
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .single();
-
+      const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
       if (isMounted) {
-        setRole(profile?.role || null);
+        setRole(profile?.role ?? "admin");
         setUserEmail(user.email || "");
       }
 
@@ -235,17 +215,25 @@ export default function AdminPage() {
       }
     };
 
-    fetchAdminData(true);
+    let cancelled = false;
 
-    const interval = setInterval(() => {
-      fetchAdminData(false);
-    }, 5000);
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled || !isMounted) return;
+      if (session?.user) {
+        authedUser = session.user;
+        fetchAdminData(true);
+      } else if (event === "SIGNED_OUT") {
+        router.replace("/login");
+      }
+    });
 
+    const interval = setInterval(() => { fetchAdminData(false); }, 5000);
     return () => {
+      cancelled = true;
       isMounted = false;
       clearInterval(interval);
     };
- }, [router]);
+  }, [router]);
 
 const scrollToSection = (id: string) => {
   const el = document.getElementById(id);

@@ -36,6 +36,8 @@ type Tool = {
   name: string | null;
   description: string | null;
   category: string | null;
+  condition: string | null;
+  sale_price: number | null;
   price_per_day: number | null;
   image_url: string | null;
   video_url: string | null;
@@ -99,6 +101,15 @@ const statusColorMap: Record<string, string> = {
 };
 
 type OwnerTab = "bookings" | "tools";
+
+type Review = {
+  booking_id: number;
+  reviewer_id: string;
+  rating: number;
+  content: string | null;
+  reviewer_role: string | null;
+  created_at: string | null;
+};
 
 function getOwnerStatusLabel(b: Booking): string {
   const renterName = b.user_name || "Renter";
@@ -174,6 +185,10 @@ export default function OwnerPage() {
   const [savingCategoryId, setSavingCategoryId] = useState<number | null>(null);
   const [savedCategoryId, setSavedCategoryId] = useState<number | null>(null);
 
+  // Condition save state
+  const [savingConditionId, setSavingConditionId] = useState<number | null>(null);
+  const [savedConditionId, setSavedConditionId] = useState<number | null>(null);
+
   // Dual-confirmation state
   const [cancelConfirmBookingId, setCancelConfirmBookingId] = useState<number | null>(null);
   const [cancelConfirmReason, setCancelConfirmReason] = useState("");
@@ -187,6 +202,9 @@ export default function OwnerPage() {
 
   // Fetched dispute records keyed by booking_id
   const [disputesMap, setDisputesMap] = useState<Record<number, DisputeRecord>>({});
+
+  // Reviews received keyed by booking_id
+  const [reviewsMap, setReviewsMap] = useState<Record<number, Review>>({});
 
   // Single fetcher: bookings + XP message-convos + unread count — all in parallel.
   // Fetch disputes for a list of booking IDs and merge into disputesMap
@@ -311,17 +329,15 @@ export default function OwnerPage() {
   };
 
   useEffect(() => {
-    const fetchOwnerData = async () => {
+    const fetchOwnerData = async (user: any) => {
       setLoading(true);
       setErrorText("");
 
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-      if (authError) { setErrorText(authError.message); setLoading(false); return; }
-      if (!user?.email) { router.replace("/login"); return; }
-
       setUserEmail(user.email);
       setUserId(user.id);
+
+      const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+      setRole(profile?.role ?? "owner");
 
       // Fetch accumulated XP from DB
       const { data: xpRows } = await supabase
@@ -334,12 +350,6 @@ export default function OwnerPage() {
         setDbXp(total);
         setXpBreakdown(xpRows as { event_type: string; points: number; booking_id: number; created_at: string }[]);
       }
-
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles").select("role").eq("id", user.id).single();
-
-      if (profileError) { setErrorText(profileError.message); setLoading(false); return; }
-      setRole(profile?.role || null);
 
       const { data: toolsData } = await supabase.from("tools").select("id,name");
       if (toolsData) {
@@ -367,10 +377,35 @@ export default function OwnerPage() {
       setXpMessageConvos(new Set((sentMsgs || []).map((m) => m.booking_id)).size);
       setUnreadCount(initCount || 0);
 
+      // Fetch reviews left on owner's bookings
+      const bookingIds = bks.map((b) => b.id);
+      if (bookingIds.length > 0) {
+        const { data: reviewRows } = await supabase
+          .from("reviews")
+          .select("booking_id, reviewer_id, rating, content, reviewer_role, created_at")
+          .in("booking_id", bookingIds);
+        if (reviewRows) {
+          const map: Record<number, Review> = {};
+          (reviewRows as Review[]).forEach((r) => { map[Number(r.booking_id)] = r; });
+          setReviewsMap(map);
+        }
+      }
+
       setLoading(false);
     };
 
-    fetchOwnerData();
+    let cancelled = false;
+
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled) return;
+      if (session?.user) {
+        fetchOwnerData(session.user);
+      } else if (event === "SIGNED_OUT") {
+        router.replace("/login");
+      }
+    });
+
+    return () => { cancelled = true; };
   }, [router]);
 
   useEffect(() => {
@@ -384,7 +419,17 @@ export default function OwnerPage() {
   }, [userEmail]);
 
   useEffect(() => {
-    if (!loading && role && role !== "owner" && role !== "admin") router.replace("/search");
+    const handlePageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        fetchBookings();
+      }
+    };
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
+  }, [userEmail]);
+
+  useEffect(() => {
+    if (!loading && role !== null && role !== "owner" && role !== "admin") router.replace("/search");
     if (!loading && role === "hub") router.replace("/hub");
   }, [loading, role, router]);
 
@@ -420,9 +465,9 @@ export default function OwnerPage() {
     const ext = file.name.split(".").pop();
     const path = `${userId}/${toolId}/photo-${Date.now()}.${ext}`;
     const { error: uploadError } = await supabase.storage
-      .from("tool-media").upload(path, file, { upsert: true });
+      .from("tool-images").upload(path, file, { upsert: true });
     if (uploadError) { alert("Upload failed: " + uploadError.message); setUploadingPhotoId(null); return; }
-    const { data: urlData } = supabase.storage.from("tool-media").getPublicUrl(path);
+    const { data: urlData } = supabase.storage.from("tool-images").getPublicUrl(path);
     const { error } = await supabase.from("tools")
       .update({ image_url: urlData.publicUrl }).eq("id", toolId);
     if (error) { alert(error.message); } else {
@@ -436,9 +481,9 @@ export default function OwnerPage() {
     const ext = file.name.split(".").pop();
     const path = `${userId}/${toolId}/video-${Date.now()}.${ext}`;
     const { error: uploadError } = await supabase.storage
-      .from("tool-media").upload(path, file, { upsert: true });
+      .from("tool-images").upload(path, file, { upsert: true });
     if (uploadError) { alert("Upload failed: " + uploadError.message); setUploadingVideoId(null); return; }
-    const { data: urlData } = supabase.storage.from("tool-media").getPublicUrl(path);
+    const { data: urlData } = supabase.storage.from("tool-images").getPublicUrl(path);
     const { error } = await supabase.from("tools")
       .update({ video_url: urlData.publicUrl }).eq("id", toolId);
     if (!error) {
@@ -471,6 +516,36 @@ export default function OwnerPage() {
     setOwnerTools((prev) => prev.map((t) => t.id === toolId ? { ...t, category } : t));
     setSavedCategoryId(toolId);
     setTimeout(() => setSavedCategoryId((prev) => prev === toolId ? null : prev), 2000);
+  };
+
+  const CONDITION_OPTIONS = ["Brand New", "Like New", "Good", "Fair", "Well Used"];
+  const CONDITION_STARS: Record<string, number> = {
+    "Brand New": 5, "Like New": 4, "Good": 3, "Fair": 2, "Well Used": 1,
+  };
+
+  const handleUpdateCondition = async (toolId: number, condition: string) => {
+    setSavingConditionId(toolId);
+    const { error } = await supabase.from("tools").update({ condition }).eq("id", toolId);
+    setSavingConditionId(null);
+    if (error) { alert(error.message); return; }
+    setOwnerTools((prev) => prev.map((t) => t.id === toolId ? { ...t, condition } : t));
+    setSavedConditionId(toolId);
+    setTimeout(() => setSavedConditionId((prev) => prev === toolId ? null : prev), 2000);
+  };
+
+  const handleUpdateSalePrice = async (toolId: number, raw: string) => {
+    const sale_price = raw.trim() === "" ? null : Number(raw);
+    if (sale_price !== null && isNaN(sale_price)) return;
+    const { error } = await supabase.from("tools").update({ sale_price }).eq("id", toolId);
+    if (error) { alert(error.message); return; }
+    setOwnerTools((prev) => prev.map((t) => t.id === toolId ? { ...t, sale_price } : t));
+  };
+
+  const handleDeleteTool = async (toolId: number, toolName: string | null) => {
+    if (!confirm(`Delete "${toolName || "this tool"}"? This cannot be undone.`)) return;
+    const { error } = await supabase.from("tools").delete().eq("id", toolId);
+    if (error) { alert(error.message); return; }
+    setOwnerTools((prev) => prev.filter((t) => t.id !== toolId));
   };
 
   const loadProfile = async () => {
@@ -761,73 +836,104 @@ export default function OwnerPage() {
           ))}
         </div>
 
-        {/* Experience / trust points */}
-        <div className="rounded-3xl border border-indigo-100 bg-white/30 px-5 py-4 backdrop-blur-md">
-          <div className="flex items-center gap-4">
-            <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${xpBadgeColor} text-white text-2xl font-bold shadow`}>
-              {displayXp}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-semibold text-gray-900">Experience Points</p>
-                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${xpBadgeColor}`}>
-                  {xpLevel}
-                </span>
-                {dbXp !== null && (
-                  <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700">
-                    ✓ Live from DB
+        {/* Points panels */}
+        <div className="grid gap-4 sm:grid-cols-3">
+
+          {/* Trust Score */}
+          <div className="rounded-3xl border border-indigo-100 bg-white/30 px-5 py-4 backdrop-blur-md sm:col-span-3">
+            <div className="flex items-center gap-4">
+              <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${xpBadgeColor} text-white text-2xl font-bold shadow`}>
+                {displayXp}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-semibold text-gray-900">Trust Score</p>
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${xpBadgeColor}`}>
+                    {xpLevel}
                   </span>
+                  {dbXp !== null && (
+                    <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700">
+                      ✓ Live
+                    </span>
+                  )}
+                </div>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  Earned by messaging renters, confirming bookings, pickups &amp; returns
+                </p>
+              </div>
+              <div className="hidden sm:block shrink-0 text-right">
+                <p className="text-xs text-gray-400">Next level</p>
+                <p className="text-sm font-bold text-indigo-600">
+                  {displayXp >= 20 ? "Max reached 🏆" :
+                   displayXp >= 10 ? `${20 - displayXp} pts to Champion` :
+                   displayXp >= 5  ? `${10 - displayXp} pts to Trusted`  :
+                   `${5 - displayXp} pts to Regular`}
+                </p>
+              </div>
+            </div>
+
+            {/* Trust Score breakdown — recent events */}
+            {xpBreakdown.length > 0 && (
+              <div className="mt-4 border-t border-indigo-100 pt-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-gray-400">How you earned your Trust Score</p>
+                <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+                  {xpBreakdown.slice(0, 6).map((row, i) => (
+                    <div key={i} className="flex items-center justify-between rounded-xl bg-white/60 px-3 py-2 text-xs">
+                      <span className="text-gray-600">
+                        {row.event_type === "booking_confirmed"  && "✅ Booking confirmed"}
+                        {row.event_type === "booking_approved"   && "👍 Booking approved"}
+                        {row.event_type === "booking_in_use"     && "🔧 Tool picked up"}
+                        {row.event_type === "booking_completed"  && "🎉 Rental completed"}
+                        {row.event_type === "booking_disputed"   && "⚠️ Dispute opened"}
+                        {row.event_type === "booking_cancelled"  && "❌ Booking cancelled"}
+                        {row.event_type === "review_written"     && "⭐ Review written"}
+                        {row.event_type === "dispute_won"        && "🏆 Dispute won"}
+                        {row.event_type === "dispute_lost"       && "💔 Dispute lost"}
+                        {!["booking_confirmed","booking_approved","booking_in_use","booking_completed","booking_disputed","booking_cancelled","review_written","dispute_won","dispute_lost"].includes(row.event_type) && row.event_type}
+                        {" "}
+                        <span className="text-gray-400">#{row.booking_id}</span>
+                      </span>
+                      <span className={`ml-2 font-bold ${row.points >= 0 ? "text-green-600" : "text-red-500"}`}>
+                        {row.points >= 0 ? "+" : ""}{row.points} pts
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {xpBreakdown.length > 6 && (
+                  <p className="mt-2 text-xs text-gray-400 text-center">
+                    +{xpBreakdown.length - 6} more events · {xpBreakdown.reduce((s, r) => s + r.points, 0)} pts total
+                  </p>
                 )}
               </div>
-              <p className="mt-0.5 text-xs text-gray-500">
-                Earned by messaging renters, confirming bookings, pickups &amp; returns
-              </p>
-            </div>
-            <div className="hidden sm:block shrink-0 text-right">
-              <p className="text-xs text-gray-400">Next level</p>
-              <p className="text-sm font-bold text-indigo-600">
-                {displayXp >= 20 ? "Max reached 🏆" :
-                 displayXp >= 10 ? `${20 - displayXp} XP to Champion` :
-                 displayXp >= 5  ? `${10 - displayXp} XP to Trusted`  :
-                 `${5 - displayXp} XP to Regular`}
-              </p>
+            )}
+          </div>
+
+          {/* Tool Points */}
+          <div className="rounded-3xl border border-yellow-100 bg-white/30 px-5 py-4 backdrop-blur-md">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-yellow-400 text-white text-xl font-bold shadow">
+                {Object.keys(reviewsMap).length}
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Tool Points</p>
+                <p className="mt-0.5 text-xs text-gray-500">Tools reviewed by your renters</p>
+              </div>
             </div>
           </div>
 
-          {/* XP breakdown — recent events */}
-          {xpBreakdown.length > 0 && (
-            <div className="mt-4 border-t border-indigo-100 pt-4">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-gray-400">How you earned your XP</p>
-              <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
-                {xpBreakdown.slice(0, 6).map((row, i) => (
-                  <div key={i} className="flex items-center justify-between rounded-xl bg-white/60 px-3 py-2 text-xs">
-                    <span className="text-gray-600">
-                      {row.event_type === "booking_confirmed"  && "✅ Booking confirmed"}
-                      {row.event_type === "booking_approved"   && "👍 Booking approved"}
-                      {row.event_type === "booking_in_use"     && "🔧 Tool picked up"}
-                      {row.event_type === "booking_completed"  && "🎉 Rental completed"}
-                      {row.event_type === "booking_disputed"   && "⚠️ Dispute opened"}
-                      {row.event_type === "booking_cancelled"  && "❌ Booking cancelled"}
-                      {row.event_type === "review_written"     && "⭐ Review written"}
-                      {row.event_type === "dispute_won"        && "🏆 Dispute won"}
-                      {row.event_type === "dispute_lost"       && "💔 Dispute lost"}
-                      {!["booking_confirmed","booking_approved","booking_in_use","booking_completed","booking_disputed","booking_cancelled","review_written","dispute_won","dispute_lost"].includes(row.event_type) && row.event_type}
-                      {" "}
-                      <span className="text-gray-400">#{row.booking_id}</span>
-                    </span>
-                    <span className={`ml-2 font-bold ${row.points >= 0 ? "text-green-600" : "text-red-500"}`}>
-                      {row.points >= 0 ? "+" : ""}{row.points} XP
-                    </span>
-                  </div>
-                ))}
+          {/* Community Points — coming soon */}
+          <div className="rounded-3xl border border-dashed border-gray-200 bg-white/20 px-5 py-4 backdrop-blur-md sm:col-span-2 opacity-60">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gray-300 text-white text-xl font-bold shadow">
+                🔒
               </div>
-              {xpBreakdown.length > 6 && (
-                <p className="mt-2 text-xs text-gray-400 text-center">
-                  +{xpBreakdown.length - 6} more events · {xpBreakdown.reduce((s, r) => s + r.points, 0)} XP total
-                </p>
-              )}
+              <div>
+                <p className="text-sm font-semibold text-gray-700">Community Points</p>
+                <p className="mt-0.5 text-xs text-gray-400">Coming soon — earn points by helping grow the AirTool community</p>
+              </div>
             </div>
-          )}
+          </div>
+
         </div>
 
         {/* My Profile button + panel */}
@@ -1260,10 +1366,33 @@ export default function OwnerPage() {
                           bookingId={b.id}
                           myEmail={userEmail}
                           otherEmail={b.user_email}
+                          otherName={b.user_name || undefined}
                           label="💬 Message Renter"
                         />
                       )}
                     </div>
+
+                    {reviewsMap[b.id] && (
+                      <div className="mt-4 rounded-2xl border border-yellow-200 bg-yellow-50 p-4">
+                        <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                          <p className="text-xs font-semibold uppercase tracking-widest text-yellow-700">Renter Review</p>
+                          {b.user_name && (
+                            <a href={`/profile/${reviewsMap[b.id].reviewer_id}`} className="text-xs font-semibold text-[#2f641f] hover:underline">
+                              {b.user_name} →
+                            </a>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-0.5 text-yellow-400 text-base">
+                          {[1,2,3,4,5].map(s => <span key={s}>{s <= reviewsMap[b.id].rating ? "★" : "☆"}</span>)}
+                        </div>
+                        {reviewsMap[b.id].content && (
+                          <p className="mt-2 text-sm text-gray-700">{reviewsMap[b.id].content}</p>
+                        )}
+                        {reviewsMap[b.id].created_at && (
+                          <p className="mt-1 text-xs text-gray-400">{new Date(reviewsMap[b.id].created_at!).toLocaleString()}</p>
+                        )}
+                      </div>
+                    )}
 
                     <p className="mt-5 text-xs text-gray-400">
                       {b.created_at ? new Date(b.created_at).toLocaleString() : ""}
@@ -1292,13 +1421,24 @@ export default function OwnerPage() {
                 {ownerTools.map((tool) => (
                   <div key={tool.id} className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
 
-                    {/* Photo area */}
-                    <div className="relative aspect-[4/3] bg-gray-100">
-                      {tool.image_url ? (
-                        <img src={tool.image_url} alt={tool.name || "Tool"} className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full items-center justify-center text-sm text-gray-400">No photo yet</div>
-                      )}
+                    {/* Photo area — click to edit, X to delete */}
+                    <div className="relative aspect-[4/3] bg-gray-100 group">
+                      <a href={`/tools/${tool.id}/edit`} className="block h-full w-full">
+                        {tool.image_url ? (
+                          <img src={tool.image_url} alt={tool.name || "Tool"} className="h-full w-full object-cover transition group-hover:brightness-90" />
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-sm text-gray-400">No photo yet</div>
+                        )}
+                        <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+                          <span className="rounded-full bg-black/60 px-4 py-1.5 text-xs font-semibold text-white">✏️ Edit listing</span>
+                        </span>
+                      </a>
+                      {/* Delete X */}
+                      <button
+                        onClick={() => handleDeleteTool(tool.id, tool.name)}
+                        className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white text-xs font-bold hover:bg-red-600 transition z-10"
+                        title="Delete tool"
+                      >✕</button>
                       {tool.promo_price && (
                         <span className="absolute left-3 top-3 rounded-full bg-red-500 px-3 py-1 text-xs font-bold text-white shadow">
                           {tool.promo_label || "PROMO"} ${Number(tool.promo_price).toFixed(2)}/day
@@ -1358,6 +1498,38 @@ export default function OwnerPage() {
                           ${Number(tool.price_per_day || 0).toFixed(2)}
                           <span className="text-sm font-normal text-gray-500"> / day</span>
                         </p>
+
+                        {/* Condition self-assessment */}
+                        <div className="mt-2">
+                          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-black/40">Condition</p>
+                          <div className="flex items-center gap-1.5">
+                            <div className="relative flex-1">
+                              <select
+                                value={tool.condition || ""}
+                                onChange={(e) => handleUpdateCondition(tool.id, e.target.value)}
+                                disabled={savingConditionId === tool.id}
+                                className="w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 py-1.5 pl-3 pr-7 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-60 cursor-pointer focus:outline-none focus:border-amber-300"
+                              >
+                                <option value="">— not set —</option>
+                                {CONDITION_OPTIONS.map((opt) => (
+                                  <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                              </select>
+                              <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-[10px]">▾</span>
+                            </div>
+                            {tool.condition && CONDITION_STARS[tool.condition] && (
+                              <span className="shrink-0 text-sm text-amber-400 tracking-tight">
+                                {"★".repeat(CONDITION_STARS[tool.condition])}{"☆".repeat(5 - CONDITION_STARS[tool.condition])}
+                              </span>
+                            )}
+                            {savedConditionId === tool.id && (
+                              <span className="shrink-0 text-sm font-semibold text-green-600">✓</span>
+                            )}
+                            {savingConditionId === tool.id && (
+                              <span className="shrink-0 text-xs text-gray-400">Saving…</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
 
                       {/* Upload photo */}
@@ -1400,6 +1572,28 @@ export default function OwnerPage() {
                         >
                           {uploadingVideoId === tool.id ? "Uploading video..." : "🎥 Upload / Replace Video"}
                         </button>
+                      </div>
+
+                      {/* For sale / replacement value */}
+                      <div className="rounded-2xl border border-amber-100 bg-amber-50 p-3 space-y-1.5">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                          🏷️ For Sale / Replacement Value
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-amber-700/60">$</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            defaultValue={tool.sale_price ?? ""}
+                            onBlur={(e) => handleUpdateSalePrice(tool.id, e.target.value)}
+                            placeholder="e.g. 350"
+                            className="flex-1 rounded-xl border border-amber-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-amber-400"
+                          />
+                        </div>
+                        <p className="text-[10px] text-amber-600/70 leading-4">
+                          Sets the sell price &amp; lost-tool replacement cost. Guides deposit amount.
+                        </p>
                       </div>
 
                       {/* Promo price */}

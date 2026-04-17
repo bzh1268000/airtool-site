@@ -399,13 +399,13 @@ export default function BookingPage({
               </p>
 
               {/* Already-booked periods */}
-              {bookedPeriods.length > 0 && (
+              {bookedPeriods.filter((b) => { const p = parsePeriod(b); return p ? p.end > new Date() : false; }).length > 0 && (
                 <div className="mt-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3">
                   <p className="text-xs font-semibold text-red-700 uppercase tracking-[0.14em]">
                     🔒 Already booked — unavailable:
                   </p>
                   <ul className="mt-2 space-y-1">
-                    {bookedPeriods.map((b) => (
+                    {bookedPeriods.filter((b) => { const p = parsePeriod(b); return p ? p.end > new Date() : false; }).map((b) => (
                       <li key={b.id} className="flex items-center gap-2 text-xs text-red-600">
                         <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-400 shrink-0" />
                         {fmtPeriod(b)}
