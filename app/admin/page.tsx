@@ -145,6 +145,12 @@ export default function AdminPage() {
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [resolvingDisputeId, setResolvingDisputeId] = useState<number | null>(null);
   const [showResolvedDisputes, setShowResolvedDisputes] = useState(false);
+  const [toolSales, setToolSales] = useState<{ id: number; tool_name: string; sale_price: number; platform_commission: number; buyer_email: string; buyer_name: string; owner_email: string; paid_at: string; payout_status: string; payout_note: string | null }[]>([]);
+  const [payoutUpdating, setPayoutUpdating] = useState<number | null>(null);
+  const [saleCommissionPct, setSaleCommissionPct] = useState<number>(10);
+  const [commissionEditing, setCommissionEditing] = useState(false);
+  const [commissionInput, setCommissionInput] = useState("10");
+  const [commissionSaving, setCommissionSaving] = useState(false);
   const [adminNotes, setAdminNotes] = useState("");
   const [resolution, setResolution] = useState<"release_to_owner" | "partial_refund" | "full_refund">("release_to_owner");
   const [disputeResolving, setDisputeResolving] = useState(false);
@@ -207,17 +213,24 @@ export default function AdminPage() {
         supabase.from("profiles").select("*", { count: "exact", head: true }).gte("created_at", todayStart),
       ]);
 
-      // Fetch disputes (best-effort — table may not exist yet)
-      const { data: disputesData } = await supabase
-        .from("disputes")
-        .select("*")
-        .order("created_at", { ascending: false });
+      // Fetch disputes, tool sales, and commission setting (best-effort)
+      const [{ data: disputesData }, { data: salesData }, { data: commissionData }] = await Promise.all([
+        supabase.from("disputes").select("*").order("created_at", { ascending: false }),
+        supabase.from("tool_sales").select("*").order("paid_at", { ascending: false }),
+        supabase.from("platform_settings").select("value").eq("key", "sale_commission_pct").single(),
+      ]);
 
       if (isMounted) {
         setProfilesCount(profileCount || 0);
         setTodayProfilesCount(todayProfileCount || 0);
         setBookings((bookingsData as Booking[]) || []);
         if (disputesData) setDisputes(disputesData as Dispute[]);
+        if (salesData) setToolSales(salesData as any);
+        if (commissionData?.value) {
+          const pct = Number(commissionData.value);
+          setSaleCommissionPct(pct);
+          setCommissionInput(String(pct));
+        }
         setLoading(false);
       }
     };
@@ -1507,8 +1520,137 @@ const p2pPendingBookings = useMemo(
             </div>
           </div>
         </section>
+
+        {/* ── TOOL SALES PAYOUTS ── */}
+        <section className="rounded-[30px] border border-orange-100 bg-white p-6 shadow-sm" id="tool-sales">
+          <div className="flex items-start justify-between flex-wrap gap-3">
+            <div>
+              <h2 className="text-xl font-semibold">🏷️ Tool Sales &amp; Payouts</h2>
+              <p className="mt-1 text-sm text-black/50">Tools sold via Stripe checkout. Mark as paid once you transfer funds to the owner.</p>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Commission rate editor */}
+              <div className="flex items-center gap-2 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-2">
+                <span className="text-xs font-semibold text-blue-700">Sale commission:</span>
+                {commissionEditing ? (
+                  <>
+                    <input
+                      type="number" min="0" max="100" step="0.5"
+                      value={commissionInput}
+                      onChange={(e) => setCommissionInput(e.target.value)}
+                      className="w-16 rounded-lg border border-blue-200 px-2 py-0.5 text-sm font-bold text-blue-800 text-center"
+                    />
+                    <span className="text-xs text-blue-600">%</span>
+                    <button
+                      disabled={commissionSaving}
+                      onClick={async () => {
+                        setCommissionSaving(true);
+                        const pct = Math.max(0, Math.min(100, Number(commissionInput)));
+                        await supabase.from("platform_settings").upsert({ key: "sale_commission_pct", value: String(pct) }, { onConflict: "key" });
+                        setSaleCommissionPct(pct);
+                        setCommissionInput(String(pct));
+                        setCommissionEditing(false);
+                        setCommissionSaving(false);
+                      }}
+                      className="rounded-full bg-blue-500 px-3 py-0.5 text-xs font-semibold text-white hover:bg-blue-600 disabled:opacity-60"
+                    >
+                      {commissionSaving ? "Saving…" : "Save"}
+                    </button>
+                    <button onClick={() => setCommissionEditing(false)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-sm font-bold text-blue-800">{saleCommissionPct}%</span>
+                    <button onClick={() => setCommissionEditing(true)} className="text-xs text-blue-500 hover:text-blue-700 underline">Edit</button>
+                  </>
+                )}
+              </div>
+              <span className="rounded-full bg-orange-100 px-3 py-1 text-sm font-semibold text-orange-700">
+                {toolSales.filter((s) => s.payout_status === "pending").length} pending payout{toolSales.filter((s) => s.payout_status === "pending").length !== 1 ? "s" : ""}
+              </span>
+            </div>
+          </div>
+
+          {toolSales.length === 0 ? (
+            <p className="mt-6 text-sm text-black/40">No tool sales yet.</p>
+          ) : (
+            <>
+              {/* Summary totals */}
+              <div className="mt-4 grid grid-cols-4 gap-3 text-center">
+                <div className="rounded-2xl border border-gray-100 bg-gray-50 p-3">
+                  <div className="text-2xl font-bold text-gray-900">{toolSales.length}</div>
+                  <div className="text-xs text-gray-500">Total Sales</div>
+                </div>
+                <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3">
+                  <div className="text-2xl font-bold text-blue-600">
+                    NZ${toolSales.reduce((sum, s) => sum + Number(s.platform_commission || 0), 0).toFixed(2)}
+                  </div>
+                  <div className="text-xs text-gray-500">Platform Revenue</div>
+                </div>
+                <div className="rounded-2xl border border-orange-100 bg-orange-50 p-3">
+                  <div className="text-2xl font-bold text-orange-600">
+                    NZ${toolSales.filter((s) => s.payout_status === "pending").reduce((sum, s) => sum + Number(s.sale_price) - Number(s.platform_commission || 0), 0).toFixed(2)}
+                  </div>
+                  <div className="text-xs text-gray-500">Owed to Owners</div>
+                </div>
+                <div className="rounded-2xl border border-green-100 bg-green-50 p-3">
+                  <div className="text-2xl font-bold text-green-600">
+                    NZ${toolSales.filter((s) => s.payout_status === "paid").reduce((sum, s) => sum + Number(s.sale_price) - Number(s.platform_commission || 0), 0).toFixed(2)}
+                  </div>
+                  <div className="text-xs text-gray-500">Paid Out</div>
+                </div>
+              </div>
+
+            <div className="mt-4 space-y-3">
+              {toolSales.map((s) => (
+                <div key={s.id} className={`rounded-2xl border p-4 ${s.payout_status === "paid" ? "border-green-100 bg-green-50" : "border-orange-100 bg-orange-50"}`}>
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div>
+                      <div className="font-semibold text-gray-900">{s.tool_name}</div>
+                      <div className="mt-1 text-xs text-gray-500 space-y-0.5">
+                        <div>🛒 Buyer: <span className="font-medium text-gray-700">{s.buyer_name || "—"}</span>{s.buyer_email ? ` (${s.buyer_email})` : ""}</div>
+                        <div>👤 Pay owner: <span className="font-medium text-gray-700">{s.owner_email}</span></div>
+                      </div>
+                      <div className="mt-1 text-xs text-gray-400">
+                        {new Date(s.paid_at).toLocaleDateString("en-NZ", { dateStyle: "medium" })} · Ref: AT-SALE-{String(s.id).slice(0, 8).toUpperCase()}
+                      </div>
+                      {s.payout_note && (
+                        <div className="mt-1 text-xs text-gray-500 italic">Note: {s.payout_note}</div>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <div className="text-xl font-bold text-gray-900">NZ${Number(s.sale_price).toFixed(2)}</div>
+                      <div className="text-xs text-gray-400">Stripe received</div>
+                      <div className="text-xs text-blue-600">− NZ${Number(s.platform_commission || 0).toFixed(2)} platform fee</div>
+                      <div className="text-base font-bold text-orange-600">= NZ${(Number(s.sale_price) - Number(s.platform_commission || 0)).toFixed(2)} to owner</div>
+                      {s.payout_status === "paid" ? (
+                        <span className="mt-1 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">✅ Paid out</span>
+                      ) : (
+                        <button
+                          disabled={payoutUpdating === s.id}
+                          onClick={async () => {
+                            setPayoutUpdating(s.id);
+                            const net = (Number(s.sale_price) - Number(s.platform_commission || 0)).toFixed(2);
+                            const note = prompt(`Transfer NZ$${net} to ${s.owner_email}\n(Sale: NZ$${Number(s.sale_price).toFixed(2)} − NZ$${Number(s.platform_commission || 0).toFixed(2)} platform fee)\n\nAdd a payout note (optional):`) ?? "";
+                            await supabase.from("tool_sales").update({ payout_status: "paid", payout_note: note || null }).eq("id", s.id);
+                            setToolSales((prev) => prev.map((x) => x.id === s.id ? { ...x, payout_status: "paid", payout_note: note || null } : x));
+                            setPayoutUpdating(null);
+                          }}
+                          className="mt-1 rounded-full bg-orange-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
+                        >
+                          {payoutUpdating === s.id ? "Saving…" : `Pay NZ$${(Number(s.sale_price) - Number(s.platform_commission || 0)).toFixed(2)} to Owner`}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            </>
+          )}
+        </section>
       </div>
-      
+
   <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
   <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/90 p-2 shadow-lg backdrop-blur-md">
     <button

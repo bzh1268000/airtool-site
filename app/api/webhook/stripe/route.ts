@@ -31,26 +31,60 @@ export async function POST(req: NextRequest) {
 
   // ── checkout.session.completed ────────────────────────────────────────────────
   if (event.type === "checkout.session.completed") {
-    const session   = event.data.object as Stripe.Checkout.Session;
+    const session = event.data.object as Stripe.Checkout.Session;
     const bookingId = session.metadata?.booking_id;
+    const saleToolId = session.metadata?.sale_tool_id;
 
-    if (!bookingId) {
-      console.error("[stripe-webhook] No booking_id in session metadata", session.id);
-      return NextResponse.json({ received: true });
-    }
+    if (bookingId) {
+      // Rental payment
+      const { error } = await adminSupabase
+        .from("bookings")
+        .update({
+          stripe_session_id: session.id,
+          paid_at:           new Date().toISOString(),
+          status:            "in_use",
+        })
+        .eq("id", Number(bookingId))
+        .select("id");
 
-    const { error } = await adminSupabase
-      .from("bookings")
-      .update({
-        stripe_session_id: session.id,
-        paid_at:           new Date().toISOString(),
-        status:            "in_use",
-      })
-      .eq("id", Number(bookingId))
-      .select("id");
+      if (error) {
+        console.error("[stripe-webhook] Booking update failed:", error.message);
+      }
+    } else if (saleToolId) {
+      // Tool sale — fetch tool name + commission rate, then mark as sold and record the sale
+      const [{ data: toolRow }, { data: commissionSetting }] = await Promise.all([
+        adminSupabase.from("tools").select("name").eq("id", Number(saleToolId)).single(),
+        adminSupabase.from("platform_settings").select("value").eq("key", "sale_commission_pct").single(),
+      ]);
 
-    if (error) {
-      console.error("[stripe-webhook] Supabase update failed:", error.message);
+      const salePrice = session.amount_total ? session.amount_total / 100 : 0;
+      const commissionPct = commissionSetting?.value ? Number(commissionSetting.value) : 10;
+      const platformCommission = Math.round(salePrice * commissionPct) / 100;
+
+      const [{ error: toolErr }, { error: saleErr }] = await Promise.all([
+        adminSupabase
+          .from("tools")
+          .update({ status: "sold" })
+          .eq("id", Number(saleToolId)),
+        adminSupabase
+          .from("tool_sales")
+          .insert({
+            tool_id:             Number(saleToolId),
+            tool_name:           toolRow?.name ?? "Unknown tool",
+            sale_price:          salePrice,
+            platform_commission: platformCommission,
+            buyer_email:         session.metadata?.buyer_email || session.customer_email || "",
+            buyer_name:          session.metadata?.buyer_name || "",
+            owner_email:         session.metadata?.owner_email || "",
+            stripe_session_id:   session.id,
+            payout_status:       "pending",
+          }),
+      ]);
+
+      if (toolErr)  console.error("[stripe-webhook] Tool status update failed:", toolErr.message);
+      if (saleErr)  console.error("[stripe-webhook] tool_sales insert failed:", saleErr.message);
+    } else {
+      console.error("[stripe-webhook] No booking_id or sale_tool_id in session metadata", session.id);
     }
   }
 

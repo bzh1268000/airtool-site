@@ -145,6 +145,7 @@ export default function OwnerPage() {
     return (saved === "bookings" || saved === "tools") ? saved : "bookings";
   });
   const [unreadCount, setUnreadCount] = useState(0);
+  const [sales, setSales] = useState<{ id: number; tool_name: string; sale_price: number; platform_commission: number; buyer_email: string; buyer_name: string; paid_at: string; payout_status: string }[]>([]);
   const router = useRouter();
 
   // My Tools state
@@ -243,6 +244,14 @@ export default function OwnerPage() {
     }
     setXpMessageConvos(new Set((sentMsgs || []).map((m) => m.booking_id)).size);
     setUnreadCount(unread || 0);
+
+    // Fetch tool sales for this owner
+    const { data: salesData } = await supabase
+      .from("tool_sales")
+      .select("id, tool_name, sale_price, platform_commission, buyer_email, buyer_name, paid_at, payout_status")
+      .eq("owner_email", userEmail)
+      .order("paid_at", { ascending: false });
+    if (salesData) setSales(salesData as any);
   };
 
   const sendSystemMessage = async (bookingId: number, renterEmail: string | null | undefined, text: string) => {
@@ -615,17 +624,19 @@ export default function OwnerPage() {
     () =>
       bookings
         .filter((b) => ["confirmed", "in_use", "return_check"].includes(b.status || ""))
-        .reduce((sum, b) => sum + Number(b.price_total || 0), 0),
-    [bookings],
+        .reduce((sum, b) => sum + Number(b.price_total || 0), 0) +
+      sales.filter((s) => s.payout_status === "pending").reduce((sum, s) => sum + Number(s.sale_price || 0) - Number(s.platform_commission || 0), 0),
+    [bookings, sales],
   );
 
-  // Actual income earned — owner keeps 85 % (direct rental) after platform fee
+  // Actual income earned — completed rentals + paid-out sales
   const grossIncome = useMemo(
     () =>
       bookings
         .filter((b) => b.status === "completed")
-        .reduce((sum, b) => sum + ownerPayout(b.price_total, b.platform_fee), 0),
-    [bookings],
+        .reduce((sum, b) => sum + ownerPayout(b.price_total, b.platform_fee), 0) +
+      sales.filter((s) => s.payout_status === "paid").reduce((sum, s) => sum + Number(s.sale_price || 0) - Number(s.platform_commission || 0), 0),
+    [bookings, sales],
   );
 
   // ── Experience / trust points (derived — no extra DB column needed) ─────────
@@ -1421,6 +1432,67 @@ export default function OwnerPage() {
           </>
         )}
 
+        {/* ── TOOL SALES ── shown in bookings tab */}
+        {activeTab === "bookings" && (
+          <div className="mt-6 rounded-[28px] bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">🏷️ Tool Sales</h2>
+                <p className="mt-0.5 text-sm text-black/50">Tools sold outright — awaiting payout from AirTool admin.</p>
+              </div>
+              {sales.length > 0 && (
+                <div className="flex gap-3 text-center">
+                  <div className="rounded-2xl border border-orange-100 bg-orange-50 px-4 py-2">
+                    <div className="text-lg font-bold text-orange-600">
+                      NZ${sales.filter((s) => s.payout_status === "pending").reduce((sum, s) => sum + Number(s.sale_price) - Number(s.platform_commission || 0), 0).toFixed(2)}
+                    </div>
+                    <div className="text-xs text-gray-500">Pending payout (net)</div>
+                  </div>
+                  <div className="rounded-2xl border border-green-100 bg-green-50 px-4 py-2">
+                    <div className="text-lg font-bold text-green-600">
+                      NZ${sales.filter((s) => s.payout_status === "paid").reduce((sum, s) => sum + Number(s.sale_price) - Number(s.platform_commission || 0), 0).toFixed(2)}
+                    </div>
+                    <div className="text-xs text-gray-500">Paid out (net)</div>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="mt-4 space-y-3">
+              {sales.length === 0 ? (
+                <p className="text-sm text-black/40">No tool sales yet.</p>
+              ) : sales.map((s) => (
+                <div key={s.id} className={`rounded-2xl border p-4 ${s.payout_status === "paid" ? "border-green-100 bg-green-50" : "border-orange-100 bg-orange-50"}`}>
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div className="space-y-0.5">
+                      <div className="font-semibold text-gray-900">{s.tool_name}</div>
+                      <div className="text-xs text-gray-500">
+                        🛒 Buyer: <span className="font-medium text-gray-700">{s.buyer_name || s.buyer_email || "—"}</span>
+                        {s.buyer_name && s.buyer_email && <span className="text-gray-400"> ({s.buyer_email})</span>}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {new Date(s.paid_at).toLocaleDateString("en-NZ", { dateStyle: "long" })} · Ref: AT-SALE-{String(s.id).slice(0, 8).toUpperCase()}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-gray-400">Sale price: NZ${Number(s.sale_price).toFixed(2)}</div>
+                      {Number(s.platform_commission || 0) > 0 && (
+                        <div className="text-xs text-gray-400">− NZ${Number(s.platform_commission).toFixed(2)} platform fee</div>
+                      )}
+                      <div className="text-xl font-bold text-orange-600 mt-0.5">
+                        NZ${(Number(s.sale_price) - Number(s.platform_commission || 0)).toFixed(2)}
+                      </div>
+                      <div className="text-xs text-gray-500">your payout</div>
+                      <div className={`text-xs font-semibold mt-1 ${s.payout_status === "paid" ? "text-green-600" : "text-amber-600"}`}>
+                        {s.payout_status === "paid" ? "✅ Paid out to you" : "⏳ Payout pending from AirTool"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── TOOLS MANAGEMENT TAB ── */}
         {activeTab === "tools" && (
           <>
@@ -1496,8 +1568,13 @@ export default function OwnerPage() {
                               View →
                             </a>
                           </div>
-                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${tool.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}`}>
-                            {tool.status || "active"}
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                            tool.status === "active" ? "bg-green-100 text-green-700" :
+                            tool.status === "for_sale" ? "bg-orange-100 text-orange-700" :
+                            tool.status === "sold" ? "bg-gray-200 text-gray-500" :
+                            "bg-gray-100 text-gray-600"
+                          }`}>
+                            {tool.status === "for_sale" ? "For Sale" : tool.status === "sold" ? "Sold" : tool.status || "active"}
                           </span>
                         </div>
                         <div className="mt-1 flex items-center gap-2">

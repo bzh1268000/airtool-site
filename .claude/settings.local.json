@@ -47,7 +47,14 @@
       "Bash(cmd /c \"wmic process where processid=38996 get commandline 2>&1\")",
       "Bash(cmd /c \"wmic process where processid=38996 get Name,CommandLine\")",
       "Bash(curl -s \"http://localhost:3003/tools/1\" -o /dev/null -w \"%{http_code}\\\\n\")",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:3003/tools/1\")"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:3003/tools/1\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:3003/api/checkout/sale\" -X POST -H \"Content-Type: application/json\" -d '{\"toolId\":1}')",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:3000/tools/1\")",
+      "Bash(curl -s \"http://localhost:3000/api/checkout/sale\" -X POST -H \"Content-Type: application/json\" -d '{}')",
+      "Bash(awk 'NR>=1500 && NR<=1540' /c/airtool-site/app/admin/page.tsx)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/admin)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/renter)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/owner)"
     ]
   }
 }

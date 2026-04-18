@@ -96,7 +96,9 @@ let query = supabase
   .from("tools")
   .select(
     "id, name, description, price_per_day, promo_price, promo_label, sale_price, image_url, listing_type, hub_id, category_id, status, owner_email"
-  );
+  )
+  .neq("status", "sold");
+
       if (searchTool.trim()) {
         query = query.ilike("name", `%${searchTool.trim()}%`);
       }
@@ -157,7 +159,9 @@ let query = supabase
   .from("tools")
   .select(
     "id, name, description, price_per_day, promo_price, promo_label, sale_price, image_url, listing_type, hub_id, category_id, status, owner_email"
-  );
+  )
+  .neq("status", "sold");
+
       if (selectedHubId && selectedHubId !== "nearest") {
         query = query.eq("hub_id", selectedHubId);
       }
@@ -265,11 +269,23 @@ let query = supabase
             <div className="flex flex-col gap-0.5">
               {tool.status === "for_sale" && tool.sale_price ? (
                 <>
-                  <span className="font-bold text-orange-600">
-                    Buy: ${Number(tool.sale_price).toFixed(2)}
-                  </span>
+                  {tool.promo_price ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-orange-600">
+                        Buy: ${Number(tool.promo_price).toFixed(2)}
+                      </span>
+                      <span className="text-xs text-black/30 line-through">${Number(tool.sale_price).toFixed(2)}</span>
+                      <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-orange-600">
+                        {tool.promo_label || "PROMO"}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="font-bold text-orange-600">
+                      Buy: ${Number(tool.sale_price).toFixed(2)}
+                    </span>
+                  )}
                   <span className="text-xs text-black/50">
-                    Also rentable · {formatPrice(tool.price_per_day)}/day
+                    Also rentable · {formatPrice(tool.price_per_day)}
                   </span>
                 </>
               ) : tool.promo_price ? (

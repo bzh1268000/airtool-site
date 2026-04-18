@@ -64,10 +64,7 @@ export async function POST(req: NextRequest) {
     const rentalWindow = booking.preferred_dates
       || `${booking.start_date} → ${booking.end_date}`;
 
-    const siteUrl =
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      req.headers.get("origin") ||
-      "https://airtool.nz";
+    const siteUrl = new URL(req.url).origin;
 
     console.log("[checkout] creating session with metadata booking_id:", String(booking.id));
     const session = await stripe.checkout.sessions.create({

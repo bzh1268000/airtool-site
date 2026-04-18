@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
 import ToolImageGallery from "@/app/components/tool-image-gallery";
@@ -25,6 +25,8 @@ type ToolRow = {
   late_return_rule?: string | null;
   damage_rule?: string | null;
   sale_price?: number | null;
+  promo_price?: number | null;
+  promo_label?: string | null;
   listing_type?: string | null;
   approval_type?: string | null;
   hub_id?: string | null;
@@ -43,9 +45,10 @@ type Review = {
   booking_id: number | null;
 };
 
-export default function ToolDetailPage() {
+function ToolDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const toolId = Number(params.id);
 
   const [tool, setTool] = useState<ToolRow | null>(null);
@@ -55,6 +58,34 @@ export default function ToolDetailPage() {
   const [ownerProfileId, setOwnerProfileId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [buyLoading, setBuyLoading] = useState(false);
+  const [buyError, setBuyError] = useState("");
+
+  const saleStatus = searchParams.get("sale");
+
+  const handleBuyNow = async () => {
+    setBuyLoading(true);
+    setBuyError("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("/api/checkout/sale", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          toolId,
+          buyerEmail: session?.user?.email ?? "",
+          buyerName: session?.user?.user_metadata?.full_name ?? "",
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setBuyError(json.error || "Checkout failed"); return; }
+      window.location.href = json.url;
+    } catch {
+      setBuyError("Failed to start checkout. Please try again.");
+    } finally {
+      setBuyLoading(false);
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -62,7 +93,7 @@ export default function ToolDetailPage() {
 
       const [{ data: toolData, error: toolErr }, { data: reviewRows }] = await Promise.all([
         supabase.from("tools").select(`
-          id, name, description, price_per_day, image_url, image_url_2, image_url_3,
+          id, name, description, price_per_day, promo_price, promo_label, image_url, image_url_2, image_url_3,
           video_url, deposit, condition, brand, model, included_accessories,
           usage_notes, pickup_notes, late_return_rule, damage_rule, sale_price,
           listing_type, approval_type, hub_id, owner_email, status,
@@ -217,11 +248,54 @@ export default function ToolDetailPage() {
                 )}
               </div>
 
+              {/* Sale status banner */}
+              {saleStatus === "success" && (
+                <div className="mt-4 rounded-xl bg-green-50 border border-green-200 px-4 py-3 text-sm font-semibold text-green-700">
+                  ✅ Payment successful! The owner will be in touch soon.
+                </div>
+              )}
+              {saleStatus === "cancelled" && (
+                <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-4 py-3 text-sm text-gray-600">
+                  Payment cancelled. You can try again below.
+                </div>
+              )}
+
               {/* Price block */}
               {isForSale && tool.sale_price != null ? (
-                <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50 p-4">
-                  <div className="text-3xl font-bold text-orange-600">${tool.sale_price.toFixed(2)}</div>
-                  <div className="mt-0.5 text-sm text-orange-700">Buy price · Also rentable at ${tool.price_per_day ?? 0}/day</div>
+                <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50 p-4 space-y-1">
+                  {tool.promo_price ? (
+                    <>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-3xl font-bold text-orange-600">NZ${Number(tool.promo_price).toFixed(2)}</span>
+                        <span className="text-lg line-through text-orange-300">NZ${Number(tool.sale_price).toFixed(2)}</span>
+                        <span className="rounded-full bg-orange-200 px-2 py-0.5 text-[10px] font-bold uppercase text-orange-700">
+                          {tool.promo_label || "PROMO"}
+                        </span>
+                      </div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-orange-500">Promotional sale price</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-3xl font-bold text-orange-600">NZ${Number(tool.sale_price).toFixed(2)}</div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-orange-500">Sale price</div>
+                    </>
+                  )}
+                  <div className="pt-1 text-sm text-orange-700">
+                    Also rentable · <span className="font-medium">${tool.price_per_day ?? 0}/day</span>
+                  </div>
+                </div>
+              ) : tool.status === "sold" ? (
+                <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                  <div className="text-2xl font-bold text-gray-500">SOLD</div>
+                  <div className="mt-0.5 text-sm text-gray-400">This tool has been sold</div>
+                </div>
+              ) : tool.promo_price ? (
+                <div className="mt-6 flex items-baseline gap-3">
+                  <span className="text-4xl font-bold text-red-600">${Number(tool.promo_price).toFixed(2)}/day</span>
+                  <span className="text-lg text-black/30 line-through">${tool.price_per_day ?? 0}/day</span>
+                  <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-bold uppercase text-red-600">
+                    {tool.promo_label || "PROMO"}
+                  </span>
                 </div>
               ) : (
                 <div className="mt-6 text-4xl font-bold text-[#2f641f]">${tool.price_per_day ?? 0}/day</div>
@@ -229,16 +303,28 @@ export default function ToolDetailPage() {
 
               <p className="mt-6 text-base leading-8 text-black/70">{tool.description || "No description yet."}</p>
 
+              {buyError && (
+                <div className="mt-3 rounded-xl bg-red-50 border border-red-200 px-4 py-2 text-sm text-red-600">{buyError}</div>
+              )}
+
               <div className="mt-8 grid gap-3 sm:grid-cols-2">
-                {isForSale ? (
+                {tool.status === "sold" ? (
+                  <Link href="/search"
+                    className="sm:col-span-2 rounded-full border border-[#8bbb46] bg-white px-6 py-3 text-center text-sm font-semibold text-[#2f641f]">
+                    Browse similar tools
+                  </Link>
+                ) : isForSale ? (
                   <>
-                    <Link href={`/booking/${tool.id}`}
-                      className="rounded-full bg-orange-500 px-6 py-3 text-center text-sm font-semibold text-white hover:bg-orange-600">
-                      Enquire to Buy
-                    </Link>
+                    <button
+                      onClick={handleBuyNow}
+                      disabled={buyLoading}
+                      className="rounded-full bg-orange-500 px-6 py-3 text-center text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
+                    >
+                      {buyLoading ? "Redirecting…" : `Buy Now — NZ$${Number(tool.promo_price ?? tool.sale_price).toFixed(2)}`}
+                    </button>
                     <Link href={`/booking/${tool.id}`}
                       className="rounded-full bg-[#8bbb46] px-6 py-3 text-center text-sm font-semibold text-white hover:bg-[#7aaa39]">
-                      Request Rental
+                      Request Rental Instead
                     </Link>
                   </>
                 ) : (
@@ -387,5 +473,17 @@ export default function ToolDetailPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function ToolDetailPageWrapper() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-[#f7f8f5] flex items-center justify-center">
+        <div className="text-sm text-black/40">Loading tool…</div>
+      </main>
+    }>
+      <ToolDetailPage />
+    </Suspense>
   );
 }
