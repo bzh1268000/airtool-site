@@ -47,24 +47,28 @@ export default function Navbar() {
 
   // Fresh live lookup — never depends on stale React state
   const handleDashboard = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    const user = session?.user ?? null;
-    if (!user?.id) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
+      if (!user?.id) {
+        router.push("/login");
+        return;
+      }
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single();
+      const role = profile?.role ?? "renter";
+      const url =
+        role === "admin" ? "/admin"  :
+        role === "hub"   ? "/hub"    :
+        role === "owner" ? "/owner"  :
+        "/renter";
+      router.push(url);
+    } catch {
       router.push("/login");
-      return;
     }
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-    const role = profile?.role ?? "renter";
-    const url =
-      role === "admin" ? "/admin"  :
-      role === "hub"   ? "/hub"    :
-      role === "owner" ? "/owner"  :
-      "/renter";
-    router.push(url);
   };
 
   return (

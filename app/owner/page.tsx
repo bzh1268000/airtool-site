@@ -446,9 +446,9 @@ export default function OwnerPage() {
     localStorage.setItem("ownerTab", tab);
   };
 
-  // Load owner tools when tab switches to "tools"
+  // Load owner tools as soon as we know the user's email (not gated on tab)
   useEffect(() => {
-    if (activeTab !== "tools" || !userEmail) return;
+    if (!userEmail) return;
     const fetchOwnerTools = async () => {
       setToolsLoading(true);
       const { data, error } = await supabase
@@ -458,7 +458,7 @@ export default function OwnerPage() {
       setToolsLoading(false);
     };
     fetchOwnerTools();
-  }, [activeTab, userEmail]);
+  }, [userEmail]);
 
   const handleUploadPhoto = async (toolId: number, file: File) => {
     setUploadingPhotoId(toolId);
@@ -936,16 +936,7 @@ export default function OwnerPage() {
 
         </div>
 
-        {/* My Profile button + panel */}
-        <div>
-          <button
-            onClick={() => showProfile ? setShowProfile(false) : handleOpenProfile()}
-            className="rounded-2xl border border-[#8bbb46] bg-[#f0f8e8] px-4 py-2.5 text-sm font-semibold text-[#2f641f] hover:bg-[#e4f5d4]"
-          >
-            👤 My Profile
-          </button>
-
-          {showProfile && (
+        {showProfile && (
             <div className="mt-4 rounded-3xl border border-[#8bbb46]/30 bg-white/95 p-6 shadow-sm">
               <div className="flex items-center justify-between mb-5">
                 <div>
@@ -1031,7 +1022,6 @@ export default function OwnerPage() {
               )}
             </div>
           )}
-        </div>
 
         {/* Unread messages banner — hidden completely when count is 0 */}
         {unreadCount > 0 && (
@@ -1049,8 +1039,8 @@ export default function OwnerPage() {
           </a>
         )}
 
-        {/* Tabs */}
-        <div className="flex gap-2">
+        {/* Tabs + quick actions — single row */}
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => handleTabChange("bookings")}
             className={`rounded-2xl px-5 py-2.5 text-sm font-semibold transition ${activeTab === "bookings" ? "bg-slate-900 text-white" : "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"}`}
@@ -1061,7 +1051,23 @@ export default function OwnerPage() {
             onClick={() => handleTabChange("tools")}
             className={`rounded-2xl px-5 py-2.5 text-sm font-semibold transition ${activeTab === "tools" ? "bg-slate-900 text-white" : "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"}`}
           >
-            My Tools ({ownerTools.length})
+            Tools Management ({ownerTools.length})
+          </button>
+          <button
+            onClick={() => {
+              const firstTool = ownerTools[0];
+              const url = firstTool ? `${window.location.origin}/tools/${firstTool.id}` : window.location.origin;
+              navigator.clipboard.writeText(url).then(() => alert("Listing link copied!"));
+            }}
+            className="rounded-2xl border border-gray-200 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition"
+          >
+            Share Listing
+          </button>
+          <button
+            onClick={() => showProfile ? setShowProfile(false) : handleOpenProfile()}
+            className="rounded-2xl border border-[#8bbb46] bg-[#f0f8e8] px-5 py-2.5 text-sm font-semibold text-[#2f641f] hover:bg-[#e4f5d4] transition"
+          >
+            👤 My Profile
           </button>
         </div>
 
@@ -1075,11 +1081,12 @@ export default function OwnerPage() {
         {/* ── BOOKINGS TAB ── */}
         {activeTab === "bookings" && (
           <>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <button className="rounded-2xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-black">Share Listing</button>
-              <button className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50">Copy Booking Link</button>
-              <button onClick={() => handleTabChange("tools")} className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50">Add Promo Price</button>
-              <button onClick={() => handleTabChange("tools")} className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50">Manage Tools</button>
+            <div className="rounded-2xl border border-blue-100 bg-blue-50/70 px-5 py-4">
+              <p className="text-xs font-bold uppercase tracking-widest text-blue-500">What you can do here</p>
+              <ul className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm text-blue-800">
+                <li>1. Monitor your bookings</li>
+                <li>2. Communicate with renter / buyer</li>
+              </ul>
             </div>
 
             {bookings.length === 0 ? (
@@ -1107,11 +1114,21 @@ export default function OwnerPage() {
                         </div>
                         <div className="mt-4 flex items-center gap-3">
                           <p className="text-sm text-gray-600">Status:</p>
-                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusColorMap[b.status || "new"] || "bg-gray-100 text-gray-800"}`}>
-                            {b.status || "new"}
+                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                            b.status === "disputed" && disputesMap[b.id]?.status === "resolved"
+                              ? "bg-green-100 text-green-700"
+                              : statusColorMap[b.status || "new"] || "bg-gray-100 text-gray-800"
+                          }`}>
+                            {b.status === "disputed" && disputesMap[b.id]?.status === "resolved"
+                              ? "dispute resolved"
+                              : b.status || "new"}
                           </span>
                         </div>
-                        <p className="mt-1 text-sm text-gray-500">{getOwnerStatusLabel(b)}</p>
+                        <p className="mt-1 text-sm text-gray-500">
+                          {b.status === "disputed" && disputesMap[b.id]?.status === "resolved"
+                            ? "✅ Dispute resolved — awaiting final outcome"
+                            : getOwnerStatusLabel(b)}
+                        </p>
                       </div>
                     </div>
 
@@ -1404,9 +1421,19 @@ export default function OwnerPage() {
           </>
         )}
 
-        {/* ── MY TOOLS TAB ── */}
+        {/* ── TOOLS MANAGEMENT TAB ── */}
         {activeTab === "tools" && (
           <>
+            <div className="rounded-2xl border border-green-100 bg-green-50/70 px-5 py-4">
+              <p className="text-xs font-bold uppercase tracking-widest text-green-600">What you can do here</p>
+              <ul className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm text-green-800">
+                <li>1. Update tool info</li>
+                <li>2. Promote your tool</li>
+                <li>3. Sell your tool</li>
+                <li>4. Withdraw your tool from the market</li>
+              </ul>
+            </div>
+
             {toolsLoading ? (
               <div className="rounded-3xl border border-gray-200 bg-white/90 p-6 shadow-sm">
                 <p className="text-gray-600">Loading your tools...</p>

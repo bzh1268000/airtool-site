@@ -17,6 +17,7 @@ type DisputeRecord = {
   resolution: string | null;
   admin_notes: string | null;
   resolved_at: string | null;
+  raised_by?: string | null;
 };
 
 type Booking = {
@@ -157,6 +158,16 @@ export default function RenterPage() {
   // Disputes — keyed by booking_id
   const [disputesMap, setDisputesMap] = useState<Record<number, DisputeRecord>>({});
 
+  // Promo tools count
+  const [promoCount, setPromoCount] = useState(0);
+
+  // Renter-initiated dispute state
+  const [renterDisputeBookingId, setRenterDisputeBookingId] = useState<number | null>(null);
+  const [renterDisputeReason, setRenterDisputeReason] = useState("");
+  const [renterDisputeAmount, setRenterDisputeAmount] = useState("");
+  const [renterDisputeFiles, setRenterDisputeFiles] = useState<File[]>([]);
+  const [renterDisputeSubmitting, setRenterDisputeSubmitting] = useState(false);
+
   useEffect(() => {
     const fetchRenterData = async (user: any) => {
       setLoading(true);
@@ -219,6 +230,14 @@ export default function RenterPage() {
           setDisputesMap(map);
         }
       }
+
+      // Count tools with active promo prices
+      const { count: activePromoCount } = await supabase
+        .from("tools")
+        .select("*", { count: "exact", head: true })
+        .not("promo_price", "is", null)
+        .eq("status", "active");
+      setPromoCount(activePromoCount || 0);
 
       // Initial unread count + XP message-convos — run in parallel
       const [{ count: initCount }, { data: msgData }] = await Promise.all([
@@ -612,6 +631,60 @@ export default function RenterPage() {
     );
   };
 
+  const handleRaiseRenterDispute = async (b: Booking) => {
+    if (!renterDisputeReason.trim()) { alert("Please describe the issue."); return; }
+    setRenterDisputeSubmitting(true);
+    try {
+      let evidenceUrls: string[] = [];
+      if (renterDisputeFiles.length > 0) {
+        for (const file of renterDisputeFiles) {
+          const path = `booking-${b.id}/renter/${Date.now()}-${file.name}`;
+          const { error } = await supabase.storage.from("dispute-evidence").upload(path, file);
+          if (!error) evidenceUrls.push(path);
+        }
+      }
+
+      const res = await fetch("/api/disputes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookingId:          b.id,
+          ownerEmail:         b.owner_email,
+          renterEmail:        b.renter_email || userEmail,
+          reason:             renterDisputeReason.trim(),
+          amountClaimed:      renterDisputeAmount ? Number(renterDisputeAmount) : null,
+          renterEvidenceUrls: evidenceUrls,
+          raisedBy:           "renter",
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok) { alert("Failed to raise dispute: " + (j.error || "Unknown error")); setRenterDisputeSubmitting(false); return; }
+
+      setBookings((prev) => prev.map((bk) => bk.id === b.id ? { ...bk, status: "disputed" } : bk));
+      setDisputesMap((prev) => ({
+        ...prev,
+        [b.id]: {
+          id: 0,
+          booking_id:      b.id,
+          reason:          renterDisputeReason.trim(),
+          amount_claimed:  renterDisputeAmount ? Number(renterDisputeAmount) : null,
+          status:          "open",
+          created_at:      new Date().toISOString(),
+          renter_response: null,
+          resolution:      null,
+          admin_notes:     null,
+          resolved_at:     null,
+        },
+      }));
+      setRenterDisputeBookingId(null);
+      setRenterDisputeReason("");
+      setRenterDisputeAmount("");
+      setRenterDisputeFiles([]);
+    } finally {
+      setRenterDisputeSubmitting(false);
+    }
+  };
+
   return (
     <DashboardShell
       title="Renter Dashboard"
@@ -790,16 +863,22 @@ export default function RenterPage() {
         {/* Action buttons */}
         <div className="grid gap-3 grid-cols-2 xl:grid-cols-4">
           <button
+            onClick={() => document.getElementById("bookings-list")?.scrollIntoView({ behavior: "smooth" })}
+            className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-black"
+          >
+            Bookings ({bookings.length})
+          </button>
+          <button
+            onClick={() => router.push("/search?promo=1")}
+            className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+          >
+            Promotions Nearby ({promoCount})
+          </button>
+          <button
             onClick={() => router.push("/search")}
-            className="rounded-2xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-black"
+            className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
           >
             Browse More Tools
-          </button>
-          <button className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50">
-            View Promotions
-          </button>
-          <button className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50">
-            Contact Support
           </button>
           <button
             onClick={handleOpenProfile}
@@ -974,6 +1053,7 @@ export default function RenterPage() {
         )}
 
         {/* Bookings list */}
+        <div id="bookings-list" className="scroll-mt-24" />
         {loading ? (
           <div className="rounded-3xl border border-gray-200 bg-white/90 p-6 shadow-sm backdrop-blur">
             <p className="text-gray-600">Loading renter bookings...</p>
@@ -1020,12 +1100,20 @@ export default function RenterPage() {
                     <div className="mt-4 flex items-center gap-3">
                       <p className="text-sm text-gray-600">Status:</p>
                       <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                        statusColorMap[b.status || "new"] || "bg-gray-100 text-gray-800"
+                        b.status === "disputed" && disputesMap[b.id]?.status === "resolved"
+                          ? "bg-green-100 text-green-700"
+                          : statusColorMap[b.status || "new"] || "bg-gray-100 text-gray-800"
                       }`}>
-                        {b.status || "pending"}
+                        {b.status === "disputed" && disputesMap[b.id]?.status === "resolved"
+                          ? "dispute resolved"
+                          : b.status || "pending"}
                       </span>
                     </div>
-                    <p className="mt-1 text-sm text-gray-500">{getRenterStatusLabel(b)}</p>
+                    <p className="mt-1 text-sm text-gray-500">
+                      {b.status === "disputed" && disputesMap[b.id]?.status === "resolved"
+                        ? "✅ Dispute resolved — check the outcome below"
+                        : getRenterStatusLabel(b)}
+                    </p>
                   </div>
                 </div>
 
@@ -1043,48 +1131,55 @@ export default function RenterPage() {
                 {/* ── Dispute banner — shown prominently when booking is disputed ── */}
                 {b.status === "disputed" && (() => {
                   const d = disputesMap[b.id];
+                  const isResolved = d?.status === "resolved";
                   return (
-                    <div className="mt-5 overflow-hidden rounded-2xl border-2 border-red-500">
-                      {/* Red header */}
-                      <div className="flex items-center gap-3 bg-red-600 px-5 py-4">
-                        <span className="text-2xl">⚠️</span>
+                    <div className={`mt-5 overflow-hidden rounded-2xl border-2 ${isResolved ? "border-green-400" : "border-red-500"}`}>
+                      {/* Header */}
+                      <div className={`flex items-center gap-3 px-5 py-4 ${isResolved ? "bg-green-600" : "bg-red-600"}`}>
+                        <span className="text-2xl">{isResolved ? "✅" : "⚠️"}</span>
                         <div className="flex-1">
-                          <p className="text-xs font-bold uppercase tracking-widest text-red-200">Action required</p>
-                          <p className="text-base font-bold text-white">Dispute raised by owner</p>
+                          <p className={`text-xs font-bold uppercase tracking-widest ${isResolved ? "text-green-100" : "text-red-200"}`}>
+                            {isResolved ? "Dispute resolved" : "Action required"}
+                          </p>
+                          <p className="text-base font-bold text-white">
+                            {d?.raised_by === "renter" ? "Dispute raised by you" : "Dispute raised by owner"}
+                          </p>
                         </div>
                         <a
                           href={`/my-booking/${b.id}`}
-                          className="shrink-0 rounded-xl bg-white px-4 py-2 text-xs font-bold text-red-700 hover:bg-red-50"
+                          className={`shrink-0 rounded-xl bg-white px-4 py-2 text-xs font-bold hover:opacity-90 ${isResolved ? "text-green-700" : "text-red-700"}`}
                         >
-                          View &amp; Respond →
+                          View details →
                         </a>
                       </div>
 
                       {/* Detail body */}
-                      <div className="bg-red-50 px-5 py-4">
+                      <div className={`px-5 py-4 ${isResolved ? "bg-green-50" : "bg-red-50"}`}>
                         {d ? (
                           <>
                             <div className="grid gap-3 sm:grid-cols-3">
                               <div className="sm:col-span-3 rounded-xl bg-white px-4 py-3 shadow-sm">
-                                <p className="text-xs font-semibold uppercase tracking-widest text-red-400">Owner&rsquo;s reason</p>
+                                <p className={`text-xs font-semibold uppercase tracking-widest ${isResolved ? "text-green-500" : "text-red-400"}`}>
+                                  {d.raised_by === "renter" ? "Your reason" : "Owner's reason"}
+                                </p>
                                 <p className="mt-1 text-sm font-medium text-gray-900">{d.reason}</p>
                               </div>
                               <div className="rounded-xl bg-white px-4 py-3 shadow-sm">
-                                <p className="text-xs font-semibold uppercase tracking-widest text-red-400">Amount claimed</p>
-                                <p className="mt-1 text-sm font-bold text-red-700">
+                                <p className={`text-xs font-semibold uppercase tracking-widest ${isResolved ? "text-green-500" : "text-red-400"}`}>Amount claimed</p>
+                                <p className={`mt-1 text-sm font-bold ${isResolved ? "text-green-700" : "text-red-700"}`}>
                                   {d.amount_claimed != null ? `$${Number(d.amount_claimed).toFixed(2)} NZD` : "Not specified"}
                                 </p>
                               </div>
                               <div className="rounded-xl bg-white px-4 py-3 shadow-sm">
-                                <p className="text-xs font-semibold uppercase tracking-widest text-red-400">Status</p>
+                                <p className={`text-xs font-semibold uppercase tracking-widest ${isResolved ? "text-green-500" : "text-red-400"}`}>Status</p>
                                 <p className="mt-1 text-sm font-bold">
-                                  {d.status === "resolved"
+                                  {isResolved
                                     ? <span className="text-green-700">✅ Resolved</span>
                                     : <span className="text-red-700">🔴 Open</span>}
                                 </p>
                               </div>
                               <div className="rounded-xl bg-white px-4 py-3 shadow-sm">
-                                <p className="text-xs font-semibold uppercase tracking-widest text-red-400">Date raised</p>
+                                <p className={`text-xs font-semibold uppercase tracking-widest ${isResolved ? "text-green-500" : "text-red-400"}`}>Date raised</p>
                                 <p className="mt-1 text-sm text-gray-700">
                                   {d.created_at ? new Date(d.created_at).toLocaleString("en-NZ", { dateStyle: "medium", timeStyle: "short" }) : "—"}
                                 </p>
@@ -1229,6 +1324,17 @@ export default function RenterPage() {
                   >
                     Cancel
                   </button>
+
+                  {/* Raise dispute — available while tool is in use or during return check */}
+                  {(b.status === "in_use" || b.status === "return_check") && !disputesMap[b.id] && (
+                    <button
+                      onClick={() => { setRenterDisputeBookingId(b.id); setRenterDisputeReason(""); setRenterDisputeAmount(""); setRenterDisputeFiles([]); }}
+                      className="rounded-2xl border border-orange-300 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-100"
+                    >
+                      ⚠️ Raise Dispute
+                    </button>
+                  )}
+
                   {/* Review button — only for completed bookings */}
                   {b.status === "completed" && (
                     reviewedBookingIds.has(b.id) ? (
@@ -1363,6 +1469,58 @@ export default function RenterPage() {
                       </button>
                       <button
                         onClick={() => { setReviewingBookingId(null); setReviewMsg(""); }}
+                        className="rounded-xl border border-black/15 px-6 py-2.5 text-sm font-semibold text-black/60 hover:bg-black/5"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Renter dispute form */}
+                {renterDisputeBookingId === b.id && (
+                  <div className="mt-5 rounded-2xl border-2 border-orange-300 bg-orange-50 p-5 space-y-4">
+                    <p className="text-sm font-bold text-orange-800">⚠️ Raise a Dispute</p>
+                    <textarea
+                      value={renterDisputeReason}
+                      onChange={(e) => setRenterDisputeReason(e.target.value)}
+                      placeholder="Describe the issue (e.g. tool was damaged, not as described, owner didn't show up)..."
+                      rows={3}
+                      className="w-full rounded-xl border border-orange-200 px-4 py-3 text-sm outline-none focus:border-orange-400 resize-none bg-white"
+                    />
+                    <div className="flex gap-3 flex-wrap">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={renterDisputeAmount}
+                        onChange={(e) => setRenterDisputeAmount(e.target.value)}
+                        placeholder="Amount claimed (optional, NZD)"
+                        className="rounded-xl border border-orange-200 px-4 py-2 text-sm outline-none focus:border-orange-400 bg-white w-56"
+                      />
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/*,video/*"
+                          onChange={(e) => setRenterDisputeFiles(Array.from(e.target.files || []))}
+                          className="hidden"
+                        />
+                        <span className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-100">
+                          📎 Add evidence {renterDisputeFiles.length > 0 && `(${renterDisputeFiles.length} files)`}
+                        </span>
+                      </label>
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => handleRaiseRenterDispute(b)}
+                        disabled={renterDisputeSubmitting}
+                        className="rounded-xl bg-orange-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
+                      >
+                        {renterDisputeSubmitting ? "Submitting…" : "Submit Dispute"}
+                      </button>
+                      <button
+                        onClick={() => { setRenterDisputeBookingId(null); setRenterDisputeFiles([]); }}
                         className="rounded-xl border border-black/15 px-6 py-2.5 text-sm font-semibold text-black/60 hover:bg-black/5"
                       >
                         Cancel

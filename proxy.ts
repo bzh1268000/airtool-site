@@ -1,7 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/auth-helpers-nextjs";
 import { NextResponse, type NextRequest } from "next/server";
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request: { headers: request.headers } });
 
   const supabase = createServerClient(
@@ -26,15 +26,21 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // Refresh the session if expired — keeps auth state alive across navigations.
-  await supabase.auth.getSession();
+  // Refresh the session if expired — best-effort, wrapped so it never blocks navigation.
+  try {
+    await Promise.race([
+      supabase.auth.getSession(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
+    ]);
+  } catch {
+    // Ignore — don't block the response on a slow auth refresh.
+  }
 
   return response;
 }
 
 export const config = {
   matcher: [
-    // Run on all routes except Next.js internals and static files.
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

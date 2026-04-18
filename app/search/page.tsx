@@ -19,6 +19,9 @@ type ToolRow = {
   name: string;
   description?: string | null;
   price_per_day?: number | string | null;
+  promo_price?: number | null;
+  promo_label?: string | null;
+  sale_price?: number | null;
   image_url?: string | null;
   listing_type?: "hub" | "owner" | string | null;
   hub_id?: string | null;
@@ -34,10 +37,12 @@ function SearchContent() {
   const initialTool = searchParams.get("tool") || "";
   const initialCategory = searchParams.get("category") || "";
   const initialHub = searchParams.get("hub") || "";
+  const initialPromoOnly = searchParams.get("promo") === "1";
 
   const [searchTool, setSearchTool] = useState(initialTool);
   const [selectedCategoryId, setSelectedCategoryId] = useState(initialCategory);
   const [selectedHubId, setSelectedHubId] = useState(initialHub);
+  const [promoOnly, setPromoOnly] = useState(initialPromoOnly);
 
   const [hubsData, setHubsData] = useState<HubRow[]>([]);
   const [categoriesData, setCategoriesData] = useState<CategoryRow[]>([]);
@@ -90,7 +95,7 @@ function SearchContent() {
 let query = supabase
   .from("tools")
   .select(
-    "id, name, description, price_per_day, image_url, listing_type, hub_id, category_id, status, owner_email"
+    "id, name, description, price_per_day, promo_price, promo_label, sale_price, image_url, listing_type, hub_id, category_id, status, owner_email"
   );
       if (searchTool.trim()) {
         query = query.ilike("name", `%${searchTool.trim()}%`);
@@ -102,6 +107,10 @@ let query = supabase
 
       if (selectedHubId && selectedHubId !== "nearest") {
         query = query.eq("hub_id", selectedHubId);
+      }
+
+      if (promoOnly) {
+        query = query.not("promo_price", "is", null);
       }
 
       const { data, error } = await query.order("id", { ascending: false });
@@ -140,14 +149,14 @@ let query = supabase
     };
 
     loadTools();
-  }, [searchTool, selectedCategoryId, selectedHubId]);
+  }, [searchTool, selectedCategoryId, selectedHubId, promoOnly]);
 
   useEffect(() => {
     const loadNearbyTools = async () => {
 let query = supabase
   .from("tools")
   .select(
-    "id, name, description, price_per_day, image_url, listing_type, hub_id, category_id, status, owner_email"
+    "id, name, description, price_per_day, promo_price, promo_label, sale_price, image_url, listing_type, hub_id, category_id, status, owner_email"
   );
       if (selectedHubId && selectedHubId !== "nearest") {
         query = query.eq("hub_id", selectedHubId);
@@ -241,24 +250,52 @@ let query = supabase
             </div>
           ) : null}
 
-          <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em]">
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em]">
             {tool.listing_type === "hub" ? (
               <span className="bg-green-100 px-2 py-1 text-green-700">Hub pickup</span>
             ) : (
               <span className="bg-blue-100 px-2 py-1 text-blue-700">Owner approval</span>
             )}
+            {tool.status === "for_sale" && (
+              <span className="bg-orange-100 px-2 py-1 text-orange-700">For Sale</span>
+            )}
           </div>
 
           <div className="mt-4 flex items-center justify-between">
-            <span className="font-semibold text-[#2f641f]">
-              {formatPrice(tool.price_per_day)}
-            </span>
+            <div className="flex flex-col gap-0.5">
+              {tool.status === "for_sale" && tool.sale_price ? (
+                <>
+                  <span className="font-bold text-orange-600">
+                    Buy: ${Number(tool.sale_price).toFixed(2)}
+                  </span>
+                  <span className="text-xs text-black/50">
+                    Also rentable · {formatPrice(tool.price_per_day)}/day
+                  </span>
+                </>
+              ) : tool.promo_price ? (
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-red-600">
+                    ${Number(tool.promo_price).toFixed(2)}/day
+                  </span>
+                  <span className="text-xs text-black/40 line-through">
+                    {formatPrice(tool.price_per_day)}
+                  </span>
+                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-600">
+                    {tool.promo_label || "PROMO"}
+                  </span>
+                </div>
+              ) : (
+                <span className="font-semibold text-[#2f641f]">
+                  {formatPrice(tool.price_per_day)}
+                </span>
+              )}
+            </div>
 
             <button
-              onClick={() => router.push(`/booking/${tool.id}`)}
-              className="bg-[#8bbb46] px-3 py-2 text-xs font-semibold text-white"
+              onClick={() => router.push(tool.status === "for_sale" ? `/tools/${tool.id}` : `/booking/${tool.id}`)}
+              className={`px-3 py-2 text-xs font-semibold text-white ${tool.status === "for_sale" ? "bg-orange-500 hover:bg-orange-600" : "bg-[#8bbb46]"}`}
             >
-              Book
+              {tool.status === "for_sale" ? "View" : "Book"}
             </button>
           </div>
         </div>

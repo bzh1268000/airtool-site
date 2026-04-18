@@ -88,6 +88,7 @@ type Dispute = {
   resolved_at: string | null;
   resolution: string | null;
   admin_notes: string | null;
+  raised_by?: string | null;
 };
 
 function safeMoney(value: number | null | undefined) {
@@ -143,6 +144,7 @@ export default function AdminPage() {
   const [bookingTab, setBookingTab] = useState<BookingTab>("new");
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [resolvingDisputeId, setResolvingDisputeId] = useState<number | null>(null);
+  const [showResolvedDisputes, setShowResolvedDisputes] = useState(false);
   const [adminNotes, setAdminNotes] = useState("");
   const [resolution, setResolution] = useState<"release_to_owner" | "partial_refund" | "full_refund">("release_to_owner");
   const [disputeResolving, setDisputeResolving] = useState(false);
@@ -454,26 +456,40 @@ const p2pPendingBookings = useMemo(
     },
   ];
 
+  const openDisputeCount = disputes.filter((d) => d.status === "open").length;
+
   const riskItems = [
     {
       title: "Suspicious user activity",
       detail: `${suspiciousCount} bookings are missing phone or address.`,
       level: "Medium",
+      onClick: () => scrollToSection("transactions"),
     },
     {
       title: "P2P pending decisions",
       detail: `${p2pPendingBookings.length} P2P bookings are waiting for owner response.`,
       level: "Normal",
+      onClick: () => { setBookingTab("p2p"); scrollToSection("transactions"); },
     },
     {
       title: "Hub pending decisions",
       detail: `${hubPendingBookings.length} hub bookings are waiting for hub response.`,
       level: "Normal",
+      onClick: () => { setBookingTab("hub"); scrollToSection("transactions"); },
     },
+    ...(openDisputeCount > 0
+      ? [{
+          title: "Open disputes",
+          detail: `${openDisputeCount} dispute${openDisputeCount !== 1 ? "s" : ""} need admin review.`,
+          level: "High",
+          onClick: () => scrollToSection("disputes"),
+        }]
+      : []),
     {
       title: "AI knowledge review",
       detail: "AI-generated rule and customer-service content should still be reviewed by admin.",
       level: "High",
+      onClick: undefined as (() => void) | undefined,
     },
   ];
 
@@ -1179,7 +1195,7 @@ const p2pPendingBookings = useMemo(
           <div className="mt-6 grid gap-6">
             {disputes.filter((d) => d.status !== "resolved").length === 0 ? (
               <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-slate-500">
-                No open disputes. When an owner raises a dispute it will appear here.
+                No open disputes. When a renter or owner raises a dispute it will appear here.
               </div>
             ) : (
               disputes.filter((d) => d.status !== "resolved").map((d) => (
@@ -1196,6 +1212,9 @@ const p2pPendingBookings = useMemo(
                       <span className="text-xs text-slate-400">
                         Dispute #{d.id} · Booking #{d.booking_id}
                         {d.amount_claimed ? ` · Claimed: $${Number(d.amount_claimed).toFixed(2)}` : ""}
+                      </span>
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${d.raised_by === "renter" ? "bg-orange-100 text-orange-700" : "bg-purple-100 text-purple-700"}`}>
+                        Raised by {d.raised_by === "renter" ? "renter" : "owner"}
                       </span>
                       {d.renter_response && (
                         <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
@@ -1264,44 +1283,95 @@ const p2pPendingBookings = useMemo(
             )}
           </div>
           {disputes.filter((d) => d.status === "resolved").length > 0 && (
-            <div className="mt-4 flex items-center justify-between">
-              <span className="text-sm text-slate-400">
-                {disputes.filter((d) => d.status === "resolved").length} resolved case{disputes.filter((d) => d.status === "resolved").length !== 1 ? "s" : ""} hidden — click More… to export all
-              </span>
-              <button
-                onClick={() => {
-                  const sorted = [...disputes].sort(
-                    (a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()
-                  );
-                  const headers = ["ID","Booking ID","Owner Email","Renter Email","Reason","Amount Claimed","Status","Resolution","Admin Notes","Created At","Resolved At"];
-                  const rows = sorted.map((d) => [
-                    d.id,
-                    d.booking_id,
-                    d.owner_email || "",
-                    d.renter_email || "",
-                    d.reason || "",
-                    d.amount_claimed ?? "",
-                    d.status || "",
-                    d.resolution || "",
-                    d.admin_notes || "",
-                    d.created_at || "",
-                    d.resolved_at || "",
-                  ]);
-                  const csv = [headers, ...rows]
-                    .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
-                    .join("\n");
-                  const blob = new Blob([csv], { type: "text/csv" });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = "disputes-export.csv";
-                  a.click();
-                  URL.revokeObjectURL(url);
-                }}
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                More… (export all as CSV)
-              </button>
+            <div className="mt-6">
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => setShowResolvedDisputes((v) => !v)}
+                  className="flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-slate-800 transition"
+                >
+                  <span>{showResolvedDisputes ? "▾" : "▸"}</span>
+                  {showResolvedDisputes ? "Hide" : "Show"} resolved cases ({disputes.filter((d) => d.status === "resolved").length})
+                </button>
+                <button
+                  onClick={() => {
+                    const sorted = [...disputes].sort(
+                      (a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()
+                    );
+                    const headers = ["ID","Booking ID","Owner Email","Renter Email","Reason","Amount Claimed","Status","Resolution","Admin Notes","Created At","Resolved At"];
+                    const rows = sorted.map((d) => [
+                      d.id, d.booking_id, d.owner_email || "", d.renter_email || "",
+                      d.reason || "", d.amount_claimed ?? "", d.status || "",
+                      d.resolution || "", d.admin_notes || "", d.created_at || "", d.resolved_at || "",
+                    ]);
+                    const csv = [headers, ...rows]
+                      .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+                      .join("\n");
+                    const blob = new Blob([csv], { type: "text/csv" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "disputes-export.csv";
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Export all as CSV
+                </button>
+              </div>
+
+              {showResolvedDisputes && (
+                <div className="mt-4 grid gap-4">
+                  {disputes
+                    .filter((d) => d.status === "resolved")
+                    .sort((a, b) => new Date(b.resolved_at ?? b.created_at ?? 0).getTime() - new Date(a.resolved_at ?? a.created_at ?? 0).getTime())
+                    .map((d) => (
+                      <div key={d.id} className="rounded-[24px] border border-green-200 bg-green-50/60 p-5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full bg-green-100 px-3 py-0.5 text-xs font-bold text-green-700">✅ Resolved</span>
+                          <span className="text-xs text-slate-400">
+                            Dispute #{d.id} · Booking #{d.booking_id}
+                            {d.amount_claimed ? ` · Claimed: $${Number(d.amount_claimed).toFixed(2)}` : ""}
+                          </span>
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${d.raised_by === "renter" ? "bg-orange-100 text-orange-700" : "bg-purple-100 text-purple-700"}`}>
+                            Raised by {d.raised_by === "renter" ? "renter" : "owner"}
+                          </span>
+                        </div>
+                        <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-widest text-green-600">Reason</p>
+                            <p className="mt-0.5 text-slate-700">{d.reason || "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-widest text-green-600">Decision</p>
+                            <p className="mt-0.5 font-semibold text-slate-800">
+                              {d.resolution === "release_to_owner" && "💰 Payment released to owner"}
+                              {d.resolution === "partial_refund"   && "↩ Partial refund issued"}
+                              {d.resolution === "full_refund"      && "↩ Full refund issued"}
+                              {!d.resolution && "—"}
+                            </p>
+                          </div>
+                          {d.admin_notes && (
+                            <div className="sm:col-span-2">
+                              <p className="text-xs font-semibold uppercase tracking-widest text-green-600">Admin notes</p>
+                              <p className="mt-0.5 text-slate-700">{d.admin_notes}</p>
+                            </div>
+                          )}
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-widest text-green-600">Raised by</p>
+                            <p className="mt-0.5 text-slate-500">{d.owner_email || "—"} / {d.renter_email || "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-widest text-green-600">Resolved at</p>
+                            <p className="mt-0.5 text-slate-500">
+                              {d.resolved_at ? new Date(d.resolved_at).toLocaleString("en-NZ", { dateStyle: "medium", timeStyle: "short" }) : "—"}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
           )}
         </section>
@@ -1377,7 +1447,8 @@ const p2pPendingBookings = useMemo(
               {riskItems.map((item) => (
                 <div
                   key={item.title}
-                  className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4"
+                  onClick={item.onClick}
+                  className={`rounded-3xl border border-slate-200 bg-slate-50/70 p-4 ${item.onClick ? "cursor-pointer hover:bg-slate-100 transition" : ""}`}
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div>

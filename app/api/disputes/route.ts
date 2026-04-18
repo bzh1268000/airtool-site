@@ -10,21 +10,25 @@ const adminSupabase = createClient(
 // POST /api/disputes — raise a dispute for a booking
 export async function POST(req: NextRequest) {
   try {
-    const { bookingId, ownerEmail, renterEmail, reason, amountClaimed, ownerEvidenceUrls } = await req.json();
+    const { bookingId, ownerEmail, renterEmail, reason, amountClaimed, ownerEvidenceUrls, renterEvidenceUrls, raisedBy } = await req.json();
 
     if (!bookingId || !reason?.trim()) {
       return NextResponse.json({ error: "bookingId and reason are required" }, { status: 400 });
     }
 
+    const initiator = raisedBy === "renter" ? "renter" : "owner";
+
     // Insert dispute record
     const { error: insertErr } = await adminSupabase.from("disputes").insert({
-      booking_id:          Number(bookingId),
-      owner_email:         ownerEmail ?? null,
-      renter_email:        renterEmail ?? null,
-      reason:              reason.trim(),
-      amount_claimed:      amountClaimed ?? null,
-      owner_evidence_urls: ownerEvidenceUrls ?? [],
-      status:              "open",
+      booking_id:           Number(bookingId),
+      owner_email:          ownerEmail ?? null,
+      renter_email:         renterEmail ?? null,
+      reason:               reason.trim(),
+      amount_claimed:       amountClaimed ?? null,
+      owner_evidence_urls:  initiator === "owner" ? (ownerEvidenceUrls ?? []) : [],
+      renter_evidence_urls: initiator === "renter" ? (renterEvidenceUrls ?? []) : [],
+      raised_by:            initiator,
+      status:               "open",
     });
 
     if (insertErr) {

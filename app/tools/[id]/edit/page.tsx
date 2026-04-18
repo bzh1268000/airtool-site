@@ -42,6 +42,7 @@ export default function EditToolPage() {
   const [brand, setBrand]                           = useState("");
   const [model, setModel]                           = useState("");
   const [conditionStars, setConditionStars]         = useState<number | null>(null);
+  const [forSale, setForSale]                       = useState(false);
   const [description, setDescription]               = useState("");
   const [usageNotes, setUsageNotes]                 = useState("");
   const [pickupNotes, setPickupNotes]               = useState("");
@@ -72,7 +73,7 @@ export default function EditToolPage() {
       setUserId(user.id);
 
       const { data: tool } = await supabase.from("tools").select(
-        "name, category, listing_type, hub_id, price_per_day, deposit, sale_price, brand, model, condition, description, usage_notes, pickup_notes, included_accessories, image_url, image_url_2, image_url_3, video_url, owner_email, hubs(name)"
+        "name, category, listing_type, hub_id, price_per_day, deposit, sale_price, brand, model, condition, description, usage_notes, pickup_notes, included_accessories, image_url, image_url_2, image_url_3, video_url, owner_email, status, hubs(name)"
       ).eq("id", toolId).single();
 
       if (!tool) { setLoading(false); return; }
@@ -86,6 +87,7 @@ export default function EditToolPage() {
       setPricePerDay(tool.price_per_day != null ? String(tool.price_per_day) : "");
       setDeposit(tool.deposit != null ? String(tool.deposit) : "");
       setSalePrice(tool.sale_price != null ? String(tool.sale_price) : "");
+      setForSale((tool as any).status === "for_sale");
       setBrand(tool.brand || "");
       setModel(tool.model || "");
       setConditionStars(CONDITIONS.find(c => c.label === tool.condition)?.stars ?? null);
@@ -145,6 +147,8 @@ export default function EditToolPage() {
     // Build the update payload
     const resolvedHubId = await getOrCreateHub(location);
 
+    if (forSale && !salePrice) { setError("Please enter a sale price."); setSaving(false); return; }
+
     const update: Record<string, unknown> = {
       name: name.trim(),
       category: category || null,
@@ -153,6 +157,7 @@ export default function EditToolPage() {
       price_per_day: Number(pricePerDay),
       deposit: deposit ? Number(deposit) : null,
       sale_price: salePrice ? Number(salePrice) : null,
+      status: forSale ? "for_sale" : "active",
       brand: brand.trim() || null,
       model: model.trim() || null,
       condition: conditionLabel,
@@ -387,12 +392,40 @@ export default function EditToolPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 space-y-3">
-              <label className="block text-sm font-semibold text-amber-800">🏷️ For sale / replacement value ($)</label>
-              <input type="number" min="0" step="0.01" value={salePrice} onChange={(e) => setSalePrice(e.target.value)} placeholder="e.g. 350"
-                className="w-full rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm outline-none focus:border-amber-400" />
+            <div className={`rounded-2xl border p-4 space-y-3 transition ${forSale ? "border-orange-300 bg-orange-50" : "border-amber-100 bg-amber-50"}`}>
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={forSale}
+                  onChange={(e) => setForSale(e.target.checked)}
+                  className="h-4 w-4 rounded accent-orange-500"
+                />
+                <span className="text-sm font-semibold text-amber-900">
+                  🏷️ List this tool for sale at estimated value
+                </span>
+              </label>
+
+              {forSale && (
+                <div className="rounded-xl border border-orange-200 bg-white px-3 py-2 text-xs font-semibold text-orange-700">
+                  ⚠️ Listing status will change to <strong>For Sale</strong> — renters can contact you to purchase.
+                </div>
+              )}
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-amber-800">
+                  {forSale ? "Sale price ($) *" : "Estimated value / replacement cost ($)"}
+                </label>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={salePrice} onChange={(e) => setSalePrice(e.target.value)}
+                  placeholder="e.g. 350"
+                  className="w-full rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm outline-none focus:border-amber-400"
+                />
+              </div>
               <p className="text-xs text-amber-700/80 leading-5">
-                Open to selling, or sets the lost-tool replacement cost and deposit ceiling.
+                {forSale
+                  ? "Buyers can make an offer via the booking system."
+                  : "Sets the lost-tool replacement cost and deposit ceiling. Tick the box above to list as for sale."}
               </p>
             </div>
 

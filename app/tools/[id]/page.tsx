@@ -1,5 +1,9 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase/client";
 import ToolImageGallery from "@/app/components/tool-image-gallery";
 
 type ToolRow = {
@@ -25,134 +29,116 @@ type ToolRow = {
   approval_type?: string | null;
   hub_id?: string | null;
   owner_email?: string | null;
+  status?: string | null;
   hubs?: { id: string; name: string } | null;
   categories?: { id: string; name: string } | null;
 };
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+type Review = {
+  rating: number;
+  content: string | null;
+  reviewer_role: string | null;
+  created_at: string | null;
+  reviewer_id: string | null;
+  booking_id: number | null;
+};
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+export default function ToolDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const toolId = Number(params.id);
 
-export default async function ToolDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
+  const [tool, setTool] = useState<ToolRow | null>(null);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [reviewNamesMap, setReviewNamesMap] = useState<Record<number, string>>({});
+  const [ownerTotalXp, setOwnerTotalXp] = useState(0);
+  const [ownerProfileId, setOwnerProfileId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const [{ data, error }, { data: reviewRows }] = await Promise.all([
-    supabase
-    .from("tools")
-    .select(`
-      id,
-      name,
-      description,
-      price_per_day,
-      image_url,
-      image_url_2,
-      image_url_3,
-      video_url,
-      deposit,
-      condition,
-      brand,
-      model,
-      included_accessories,
-      usage_notes,
-      pickup_notes,
-      late_return_rule,
-      damage_rule,
-      sale_price,
-      listing_type,
-      approval_type,
-      hub_id,
-      owner_email,
-      hubs (
-        id,
-        name
-      ),
-      categories:category_id (
-        id,
-        name
-      )
-    `)
-      .eq("id", Number(id))
-      .single(),
-    supabase
-      .from("reviews")
-      .select("rating, content, reviewer_role, created_at, reviewer_id, booking_id")
-      .eq("target_id", Number(id))
-      .eq("target_type", "tool")
-      .order("created_at", { ascending: false }),
-  ]);
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
 
-if (error || !data) {
-  return (
+      const [{ data: toolData, error: toolErr }, { data: reviewRows }] = await Promise.all([
+        supabase.from("tools").select(`
+          id, name, description, price_per_day, image_url, image_url_2, image_url_3,
+          video_url, deposit, condition, brand, model, included_accessories,
+          usage_notes, pickup_notes, late_return_rule, damage_rule, sale_price,
+          listing_type, approval_type, hub_id, owner_email, status,
+          hubs(id, name), categories:category_id(id, name)
+        `).eq("id", toolId).single(),
+        supabase.from("reviews")
+          .select("rating, content, reviewer_role, created_at, reviewer_id, booking_id")
+          .eq("target_id", toolId).eq("target_type", "tool")
+          .order("created_at", { ascending: false }),
+      ]);
+
+      if (toolErr || !toolData) { setError("Tool not found."); setLoading(false); return; }
+      setTool(toolData as ToolRow);
+
+      const revs = (reviewRows || []) as Review[];
+      setReviews(revs);
+
+      // Fetch reviewer names
+      const bookingIds = [...new Set(revs.map(r => r.booking_id).filter(Boolean))] as number[];
+      if (bookingIds.length > 0) {
+        const { data: bks } = await supabase.from("bookings").select("id, user_name").in("id", bookingIds);
+        if (bks) {
+          const map: Record<number, string> = {};
+          (bks as { id: number; user_name: string | null }[]).forEach(b => { if (b.user_name) map[b.id] = b.user_name; });
+          setReviewNamesMap(map);
+        }
+      }
+
+      // Fetch owner XP (best-effort, no service role needed)
+      if ((toolData as ToolRow).owner_email) {
+        const { data: ownerProfile } = await supabase
+          .from("profiles").select("id").eq("email", (toolData as ToolRow).owner_email!).single();
+        if (ownerProfile) {
+          setOwnerProfileId(ownerProfile.id);
+          const { data: xpRows } = await supabase
+            .from("experience_points").select("points").eq("user_id", ownerProfile.id);
+          setOwnerTotalXp(xpRows?.reduce((s: number, r: { points: number }) => s + (r.points || 0), 0) ?? 0);
+        }
+      }
+
+      setLoading(false);
+    };
+    load();
+  }, [toolId]);
+
+  if (loading) return (
+    <main className="min-h-screen bg-[#f7f8f5] flex items-center justify-center">
+      <div className="text-sm text-black/40">Loading tool…</div>
+    </main>
+  );
+
+  if (error || !tool) return (
     <main className="min-h-screen bg-[#f7f8f5] p-6">
       <div className="mx-auto max-w-4xl rounded-[28px] bg-white p-8 shadow-sm">
-        <div className="text-xl font-semibold">Tool query failed</div>
-        <pre className="mt-4 whitespace-pre-wrap text-sm text-red-600">
-          {JSON.stringify(error, null, 2)}
-        </pre>
+        <div className="text-xl font-semibold text-red-600">{error || "Tool not found."}</div>
+        <button onClick={() => router.push("/search")} className="mt-4 text-sm text-[#2f641f] underline">← Back to search</button>
       </div>
     </main>
   );
-}
 
-  const tool = data as ToolRow;
-  const reviews = reviewRows || [];
+  const avgRating = reviews.length
+    ? reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length : 0;
 
-  // Fetch owner profile (for XP + profile link)
-  let ownerTotalXp = 0;
-  let ownerProfileId: string | null = null;
-  if (tool.owner_email) {
-    const { data: ownerProfile } = await supabaseAdmin
-      .from("profiles").select("id").eq("email", tool.owner_email).single();
-    if (ownerProfile) {
-      ownerProfileId = ownerProfile.id;
-      const { data: xpRows } = await supabase
-        .from("experience_points").select("points").eq("user_id", ownerProfile.id);
-      ownerTotalXp = xpRows?.reduce((s, r) => s + (r.points || 0), 0) ?? 0;
-    }
-  }
+  const images = [tool.image_url, tool.image_url_2, tool.image_url_3].filter(Boolean) as string[];
 
-  // Resolve reviewer names from bookings
-  const reviewBookingIds = [...new Set(reviews.map((r) => r.booking_id).filter(Boolean))];
-  let reviewNamesMap: Record<number, string> = {};
-  if (reviewBookingIds.length > 0) {
-    const { data: bks } = await supabase.from("bookings").select("id, user_name").in("id", reviewBookingIds);
-    if (bks) (bks as { id: number; user_name: string | null }[]).forEach(b => { if (b.user_name) reviewNamesMap[b.id] = b.user_name; });
-  }
-
-  // Owner display name from email
   const ownerDisplayName = tool.owner_email
     ? tool.owner_email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, c => c.toUpperCase())
     : null;
 
-  const avgRating = reviews.length
-    ? reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length
-    : 0;
-
-  const images = [
-    tool.image_url,
-    tool.image_url_2,
-    tool.image_url_3,
-  ].filter(Boolean) as string[];
-
-  const mainImage = images[0] || "/sky.jpg";
+  const isForSale = tool.status === "for_sale";
 
   return (
     <main className="min-h-screen bg-[#f7f8f5] p-6">
       <div className="mx-auto max-w-7xl">
         <div className="mb-6">
-          <Link href="/search" className="text-sm font-medium text-[#2f641f]">
-            ← Back to search
-          </Link>
+          <Link href="/search" className="text-sm font-medium text-[#2f641f]">← Back to search</Link>
         </div>
 
         <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
@@ -161,40 +147,32 @@ if (error || !data) {
 
             <div className="mt-4 rounded-[28px] bg-white p-5 shadow-sm">
               <div className="text-lg font-semibold">Product video</div>
-
               {tool.video_url ? (
                 <div className="mt-3 overflow-hidden rounded-[20px] bg-black">
-                  <video
-                    controls
-                    className="aspect-video w-full"
-                    src={tool.video_url}
-                  />
+                  <video controls className="aspect-video w-full" src={tool.video_url} />
                 </div>
               ) : (
                 <div className="mt-3 flex aspect-video items-center justify-center rounded-[20px] bg-[#eef2ea] text-sm text-black/55">
                   No video yet
                 </div>
               )}
-
-              <p className="mt-3 text-sm text-black/60">
-                Video helps renters understand size, condition, and how the tool works before booking.
-              </p>
             </div>
           </div>
 
           <div className="space-y-5">
             <div className="rounded-[28px] bg-white p-6 shadow-sm">
-              <div className="inline-flex rounded-full bg-[#eef5df] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#2f641f]">
-                {tool.listing_type === "p2p"
-                  ? "Owner approval"
-                  : tool.hubs?.name
-                    ? `${tool.hubs.name} Hub`
-                    : "Hub pickup"}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex rounded-full bg-[#eef5df] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#2f641f]">
+                  {tool.listing_type === "p2p" ? "Owner approval" : tool.hubs?.name ? `${tool.hubs.name} Hub` : "Hub pickup"}
+                </div>
+                {isForSale && (
+                  <div className="inline-flex rounded-full bg-orange-100 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-orange-700">
+                    🏷️ For Sale
+                  </div>
+                )}
               </div>
 
-              <h1 className="mt-4 text-4xl font-bold">
-                {tool.name || "Unnamed Tool"}
-              </h1>
+              <h1 className="mt-4 text-4xl font-bold">{tool.name || "Unnamed Tool"}</h1>
 
               {tool.hubs?.name && (
                 <div className="mt-2 flex items-center gap-1.5 text-sm text-black/50">
@@ -210,19 +188,14 @@ if (error || !data) {
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                   <span className="text-black/50">Listed by</span>
                   {ownerProfileId ? (
-                    <Link
-                      href={`/profile/${ownerProfileId}`}
-                      className="font-semibold text-[#2f641f] underline-offset-2 hover:underline"
-                    >
+                    <Link href={`/profile/${ownerProfileId}`} className="font-semibold text-[#2f641f] underline-offset-2 hover:underline">
                       {ownerDisplayName}
                     </Link>
                   ) : (
                     <span className="font-semibold text-gray-700">{ownerDisplayName}</span>
                   )}
                   {ownerTotalXp > 0 && (
-                    <span className="rounded-full bg-[#eef5df] px-2 py-0.5 text-xs font-semibold text-[#2f641f]">
-                      ⚡ {ownerTotalXp} XP
-                    </span>
+                    <span className="rounded-full bg-[#eef5df] px-2 py-0.5 text-xs font-semibold text-[#2f641f]">⚡ {ownerTotalXp} XP</span>
                   )}
                   {reviews.length > 0 && (
                     <span className="flex items-center gap-0.5 text-orange-400 text-xs">
@@ -233,10 +206,9 @@ if (error || !data) {
                 </div>
               )}
 
-              {/* Tool points */}
               <div className="mt-3 flex items-center gap-2">
                 <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600">
-                  🔧 {reviews.length} tool review{reviews.length !== 1 ? "s" : ""}
+                  🔧 {reviews.length} review{reviews.length !== 1 ? "s" : ""}
                 </span>
                 {tool.condition && (
                   <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
@@ -245,91 +217,87 @@ if (error || !data) {
                 )}
               </div>
 
-              <div className="mt-6 text-4xl font-bold text-[#2f641f]">
-                ${tool.price_per_day ?? 0}/day
-              </div>
+              {/* Price block */}
+              {isForSale && tool.sale_price != null ? (
+                <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                  <div className="text-3xl font-bold text-orange-600">${tool.sale_price.toFixed(2)}</div>
+                  <div className="mt-0.5 text-sm text-orange-700">Buy price · Also rentable at ${tool.price_per_day ?? 0}/day</div>
+                </div>
+              ) : (
+                <div className="mt-6 text-4xl font-bold text-[#2f641f]">${tool.price_per_day ?? 0}/day</div>
+              )}
 
-              <p className="mt-6 text-base leading-8 text-black/70">
-                {tool.description || "No description yet."}
-              </p>
+              <p className="mt-6 text-base leading-8 text-black/70">{tool.description || "No description yet."}</p>
 
               <div className="mt-8 grid gap-3 sm:grid-cols-2">
-                <Link
-                  href={`/booking/${tool.id}`}
-                  className="rounded-full bg-[#8bbb46] px-6 py-3 text-center text-sm font-semibold text-white"
-                >
-                  Request Booking
-                </Link>
-
-                <Link
-                  href={`/search?hub=${tool.hub_id || ""}`}
-                  className="rounded-full border border-[#8bbb46] bg-white px-6 py-3 text-center text-sm font-semibold text-[#2f641f]"
-                >
-                  More nearby tools
-                </Link>
+                {isForSale ? (
+                  <>
+                    <Link href={`/booking/${tool.id}`}
+                      className="rounded-full bg-orange-500 px-6 py-3 text-center text-sm font-semibold text-white hover:bg-orange-600">
+                      Enquire to Buy
+                    </Link>
+                    <Link href={`/booking/${tool.id}`}
+                      className="rounded-full bg-[#8bbb46] px-6 py-3 text-center text-sm font-semibold text-white hover:bg-[#7aaa39]">
+                      Request Rental
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <Link href={`/booking/${tool.id}`}
+                      className="rounded-full bg-[#8bbb46] px-6 py-3 text-center text-sm font-semibold text-white">
+                      Request Booking
+                    </Link>
+                    <Link href={`/search?hub=${tool.hub_id || ""}`}
+                      className="rounded-full border border-[#8bbb46] bg-white px-6 py-3 text-center text-sm font-semibold text-[#2f641f]">
+                      More nearby tools
+                    </Link>
+                  </>
+                )}
               </div>
             </div>
 
             <div className="rounded-[28px] bg-white p-6 shadow-sm">
               <div className="text-lg font-semibold">Quick facts</div>
-
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <div className="rounded-2xl bg-[#f6f8f1] p-4">
                   <div className="text-black/50">Condition</div>
                   <div className="mt-1 font-medium">{tool.condition || "-"}</div>
                 </div>
-
                 <div className="rounded-2xl bg-[#f6f8f1] p-4">
                   <div className="text-black/50">Category</div>
-                  <div className="mt-1 font-medium">
-                    {tool.categories?.name || "-"}
-                  </div>
+                  <div className="mt-1 font-medium">{(tool.categories as any)?.name || "-"}</div>
                 </div>
-
                 <div className="rounded-2xl bg-[#f6f8f1] p-4">
                   <div className="text-black/50">Deposit</div>
                   <div className="mt-1 font-medium">${tool.deposit ?? 0}</div>
                 </div>
-
-                {tool.sale_price != null && (
-                  <div className="rounded-2xl bg-amber-50 border border-amber-100 p-4 sm:col-span-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-amber-600 text-base">🏷️</span>
-                      <div>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">For Sale / Replacement Value</div>
-                        <div className="mt-0.5 text-xl font-bold text-amber-700">${tool.sale_price.toFixed(2)}</div>
-                        <div className="mt-0.5 text-xs text-amber-600/70">
-                          This tool is available to purchase · also used as the lost-tool replacement cost
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="rounded-2xl bg-[#f6f8f1] p-4">
-                  <div className="text-black/50">Approval</div>
-                  <div className="mt-1 font-medium">
-                    {tool.approval_type || "-"}
-                  </div>
-                </div>
-
                 <div className="rounded-2xl bg-[#f6f8f1] p-4">
                   <div className="text-black/50">Brand</div>
                   <div className="mt-1 font-medium">{tool.brand || "-"}</div>
                 </div>
-
                 <div className="rounded-2xl bg-[#f6f8f1] p-4">
                   <div className="text-black/50">Model</div>
                   <div className="mt-1 font-medium">{tool.model || "-"}</div>
                 </div>
+                <div className="rounded-2xl bg-[#f6f8f1] p-4">
+                  <div className="text-black/50">Approval</div>
+                  <div className="mt-1 font-medium">{tool.approval_type || "-"}</div>
+                </div>
+                {tool.sale_price != null && (
+                  <div className="rounded-2xl bg-amber-50 border border-amber-100 p-4 sm:col-span-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">🏷️ {isForSale ? "For Sale" : "Replacement Value"}</div>
+                    <div className="mt-0.5 text-xl font-bold text-amber-700">${tool.sale_price.toFixed(2)}</div>
+                    <div className="mt-0.5 text-xs text-amber-600/70">
+                      {isForSale ? "Owner is selling this tool · contact via booking" : "Lost-tool replacement cost"}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="rounded-[28px] bg-white p-6 shadow-sm">
               <div className="text-lg font-semibold">Included accessories</div>
-              <p className="mt-4 text-sm leading-7 text-black/70">
-                {tool.included_accessories || "Not added yet."}
-              </p>
+              <p className="mt-4 text-sm leading-7 text-black/70">{tool.included_accessories || "Not added yet."}</p>
             </div>
           </div>
         </div>
@@ -337,34 +305,22 @@ if (error || !data) {
         <div className="mt-8 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="rounded-[28px] bg-white p-6 shadow-sm">
             <div className="text-xl font-semibold">Usage notes</div>
-            <p className="mt-4 text-sm leading-8 text-black/70">
-              {tool.usage_notes || "No usage notes yet."}
-            </p>
+            <p className="mt-4 text-sm leading-8 text-black/70">{tool.usage_notes || "No usage notes yet."}</p>
           </div>
-
           <div className="rounded-[28px] bg-white p-6 shadow-sm">
             <div className="text-xl font-semibold">Rental information</div>
-
             <div className="mt-4 space-y-4 text-sm text-black/70">
               <div className="rounded-2xl bg-[#f6f8f1] p-4">
                 <div className="font-semibold text-black">Pickup</div>
-                <div className="mt-2">
-                  {tool.pickup_notes || "Pickup details not added yet."}
-                </div>
+                <div className="mt-2">{tool.pickup_notes || "Pickup details not added yet."}</div>
               </div>
-
               <div className="rounded-2xl bg-[#f6f8f1] p-4">
                 <div className="font-semibold text-black">Late return rule</div>
-                <div className="mt-2">
-                  {tool.late_return_rule || "Not added yet."}
-                </div>
+                <div className="mt-2">{tool.late_return_rule || "Not added yet."}</div>
               </div>
-
               <div className="rounded-2xl bg-[#f6f8f1] p-4">
                 <div className="font-semibold text-black">Damage / loss rule</div>
-                <div className="mt-2">
-                  {tool.damage_rule || "Not added yet."}
-                </div>
+                <div className="mt-2">{tool.damage_rule || "Not added yet."}</div>
                 {tool.sale_price != null && (
                   <div className="mt-2 rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-700">
                     Lost-tool replacement cost: <span className="font-bold">${tool.sale_price.toFixed(2)}</span>
@@ -375,7 +331,6 @@ if (error || !data) {
           </div>
         </div>
 
-        {/* Reviews section */}
         <div className="mt-8 rounded-[28px] bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
             <div className="flex items-center gap-3">
@@ -387,10 +342,8 @@ if (error || !data) {
               )}
             </div>
             {reviews.length > 0 && (
-              <Link
-                href={`/tools/${tool.id}/reviews`}
-                className="rounded-full border border-[#8bbb46] px-4 py-2 text-sm font-semibold text-[#2f641f] hover:bg-[#f0f8e8]"
-              >
+              <Link href={`/tools/${tool.id}/reviews`}
+                className="rounded-full border border-[#8bbb46] px-4 py-2 text-sm font-semibold text-[#2f641f] hover:bg-[#f0f8e8]">
                 See all reviews →
               </Link>
             )}
@@ -405,7 +358,7 @@ if (error || !data) {
           ) : (
             <div className="space-y-3">
               {reviews.slice(0, 3).map((r, i) => {
-                const name = reviewNamesMap[r.booking_id] || "Renter";
+                const name = r.booking_id ? (reviewNamesMap[r.booking_id] || "Renter") : "Renter";
                 return (
                   <div key={i} className="rounded-2xl bg-[#f6f8f1] p-4">
                     <div className="flex items-center justify-between flex-wrap gap-2">

@@ -37,6 +37,7 @@ export default function ListToolPage() {
   const [brand, setBrand]                         = useState("");
   const [model, setModel]                         = useState("");
   const [conditionStars, setConditionStars]       = useState<number | null>(null);
+  const [forSale, setForSale]                     = useState(false);
   const [description, setDescription]             = useState("");
   const [usageNotes, setUsageNotes]               = useState("");
   const [pickupNotes, setPickupNotes]             = useState("");
@@ -98,6 +99,7 @@ export default function ListToolPage() {
     if (!pricePerDay || Number(pricePerDay) < 0) { setError("Please enter a valid daily price."); return; }
     if (!conditionStars) { setError("Please rate the tool condition."); return; }
     if (!photoFiles[0]) { setError("Please add at least one photo (main photo is required)."); return; }
+    if (forSale && !salePrice) { setError("Please enter a sale price."); return; }
 
     setSaving(true);
     const conditionLabel = CONDITIONS.find((c) => c.stars === conditionStars)?.label ?? null;
@@ -126,7 +128,7 @@ export default function ListToolPage() {
         pickup_notes: pickupNotes.trim() || null,
         included_accessories: includedAccessories.trim() || null,
         owner_email: userEmail,
-        status: "active",
+        status: forSale ? "for_sale" : "active",
       }])
       .select("id")
       .single();
@@ -372,22 +374,40 @@ export default function ListToolPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 space-y-3">
+            <div className={`rounded-2xl border p-4 space-y-3 transition ${forSale ? "border-orange-300 bg-orange-50" : "border-amber-100 bg-amber-50"}`}>
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={forSale}
+                  onChange={(e) => setForSale(e.target.checked)}
+                  className="h-4 w-4 rounded accent-orange-500"
+                />
+                <span className="text-sm font-semibold text-amber-900">
+                  🏷️ List this tool for sale at estimated value
+                </span>
+              </label>
+
+              {forSale && (
+                <div className="rounded-xl border border-orange-200 bg-white px-3 py-2 text-xs font-semibold text-orange-700">
+                  ⚠️ Listing status will be set to <strong>For Sale</strong> — renters can contact you to purchase.
+                </div>
+              )}
+
               <div>
-                <label className="mb-1 block text-sm font-semibold text-amber-800">
-                  🏷️ For sale / replacement value ($)
+                <label className="mb-1 block text-xs font-semibold text-amber-800">
+                  {forSale ? "Sale price ($) *" : "Estimated value / replacement cost ($)"}
                 </label>
                 <input
                   type="number" min="0" step="0.01"
-                  value={salePrice}
-                  onChange={(e) => setSalePrice(e.target.value)}
+                  value={salePrice} onChange={(e) => setSalePrice(e.target.value)}
                   placeholder="e.g. 350"
                   className="w-full rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm outline-none focus:border-amber-400"
                 />
               </div>
               <p className="text-xs text-amber-700/80 leading-5">
-                Set this if you are open to selling the tool, <em>or</em> to define a replacement cost if a renter loses it.
-                It also acts as a deposit ceiling — renters can see this as the maximum liability.
+                {forSale
+                  ? "Buyers can make an offer via the booking system."
+                  : "Sets the lost-tool replacement cost and deposit ceiling. Tick the box above to list as for sale."}
               </p>
             </div>
 
