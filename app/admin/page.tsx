@@ -49,6 +49,7 @@ type Tool = {
   listing_type?: string | null;
   category?: string | null;
   hub?: string | null;
+  created_at?: string | null;
 };
 
 const statusColorMap: Record<string, string> = {
@@ -134,6 +135,7 @@ export default function AdminPage() {
   const [toolsMap, setToolsMap] = useState<Record<number, string>>({});
   const [toolsTypeMap, setToolsTypeMap] = useState<Record<number, string>>({});
   const [profilesCount, setProfilesCount] = useState(0);
+  const [todayProfilesCount, setTodayProfilesCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [userEmail, setUserEmail] = useState("");
   const [errorText, setErrorText] = useState("");
@@ -163,7 +165,7 @@ export default function AdminPage() {
 
       const { data: toolsData, error: toolsError } = await supabase
         .from("tools")
-        .select("id,name,owner_email,listing_type");
+        .select("id,name,owner_email,listing_type,created_at");
 
 
       if (!toolsError && toolsData && isMounted) {
@@ -197,9 +199,11 @@ export default function AdminPage() {
         return;
       }
 
-      const { count: profileCount } = await supabase
-        .from("profiles")
-        .select("*", { count: "exact", head: true });
+      const todayStart = getStartDateForRange("today")!.toISOString();
+      const [{ count: profileCount }, { count: todayProfileCount }] = await Promise.all([
+        supabase.from("profiles").select("*", { count: "exact", head: true }),
+        supabase.from("profiles").select("*", { count: "exact", head: true }).gte("created_at", todayStart),
+      ]);
 
       // Fetch disputes (best-effort — table may not exist yet)
       const { data: disputesData } = await supabase
@@ -209,6 +213,7 @@ export default function AdminPage() {
 
       if (isMounted) {
         setProfilesCount(profileCount || 0);
+        setTodayProfilesCount(todayProfileCount || 0);
         setBookings((bookingsData as Booking[]) || []);
         if (disputesData) setDisputes(disputesData as Dispute[]);
         setLoading(false);
@@ -265,6 +270,36 @@ const scrollToSection = (id: string) => {
 
   const totalBookings = bookings.length;
 
+  const todayBookings = useMemo(() => {
+    const start = getStartDateForRange("today")!;
+    return bookings.filter((b) => b.created_at && new Date(b.created_at) >= start);
+  }, [bookings]);
+
+  const todayTurnover = useMemo(
+    () => todayBookings.reduce((sum, b) => sum + Number(b.price_total || 0), 0),
+    [todayBookings]
+  );
+
+  const todayPlatformRevenue = useMemo(
+    () => todayBookings.reduce((sum, b) => sum + Number(b.platform_fee || 0), 0),
+    [todayBookings]
+  );
+
+  const todayNewBookings = useMemo(
+    () => todayBookings.filter((b) => b.status === "new" || b.status === "pending" || !b.status).length,
+    [todayBookings]
+  );
+
+  const todayNewListings = useMemo(() => {
+    const start = getStartDateForRange("today")!;
+    return tools.filter((t) => t.created_at && new Date(t.created_at) >= start).length;
+  }, [tools]);
+
+  const todayRiskAlerts = useMemo(
+    () => todayBookings.filter((b) => !b.phone?.trim() || !b.address?.trim()).length,
+    [todayBookings]
+  );
+
   const totalTurnover = useMemo(
     () => bookings.reduce((sum, b) => sum + Number(b.price_total || 0), 0),
     [bookings]
@@ -295,22 +330,10 @@ const scrollToSection = (id: string) => {
 
   const financeBookingCount = filteredFinanceBookings.length;
 
-  const activeToolsCount = useMemo(() => {
-    const activeToolIds = new Set(
-      bookings
-        .filter((b) => {
-          const status = b.status || "new";
-          return (
-            status === "new" ||
-            status === "approved" ||
-            status === "completed"
-          );
-        })
-        .map((b) => b.tool_id)
-        .filter((id): id is number => typeof id === "number")
-    );
-    return activeToolIds.size;
-  }, [bookings]);
+  const activeToolsCount = useMemo(
+    () => tools.filter((t) => !t.status || t.status === "active").length,
+    [tools]
+  );
 
   const newBookings = useMemo(
     () => bookings.filter((b) => 
@@ -649,30 +672,30 @@ const p2pPendingBookings = useMemo(
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[460px]">
-              <div className="rounded-3xl bg-white/80 p-4 shadow-sm">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  New
-                </p>
-                <p className="mt-2 text-2xl font-bold text-slate-900">
-                  {newBookings.length}
-                </p>
-              </div>
-              <div className="rounded-3xl bg-white/80 p-4 shadow-sm">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  P2P Pending
-                </p>
-                <p className="mt-2 text-2xl font-bold text-slate-900">
-                  {p2pPendingBookings.length}
-                </p>
-              </div>
-              <div className="rounded-3xl bg-white/80 p-4 shadow-sm">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                  Hub Pending
-                </p>
-                <p className="mt-2 text-2xl font-bold text-slate-900">
-                  {hubPendingBookings.length}
-                </p>
-              </div>
+              <button
+                onClick={() => { setBookingTab("new"); scrollToSection("transactions"); }}
+                className="rounded-3xl bg-white/80 p-4 shadow-sm text-left hover:bg-white transition"
+              >
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">New</p>
+                <p className="mt-2 text-2xl font-bold text-slate-900">{newBookings.length}</p>
+                <p className="mt-1 text-xs text-slate-400">View list →</p>
+              </button>
+              <button
+                onClick={() => { setBookingTab("p2p"); scrollToSection("transactions"); }}
+                className="rounded-3xl bg-white/80 p-4 shadow-sm text-left hover:bg-white transition"
+              >
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">P2P Pending</p>
+                <p className="mt-2 text-2xl font-bold text-slate-900">{p2pPendingBookings.length}</p>
+                <p className="mt-1 text-xs text-slate-400">View list →</p>
+              </button>
+              <button
+                onClick={() => { setBookingTab("hub"); scrollToSection("transactions"); }}
+                className="rounded-3xl bg-white/80 p-4 shadow-sm text-left hover:bg-white transition"
+              >
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Hub Pending</p>
+                <p className="mt-2 text-2xl font-bold text-slate-900">{hubPendingBookings.length}</p>
+                <p className="mt-1 text-xs text-slate-400">View list →</p>
+              </button>
             </div>
           </div>
         </section>
@@ -685,17 +708,17 @@ const p2pPendingBookings = useMemo(
         ) : null}
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-          <div className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm">
+          <button
+            onClick={() => { setBookingTab("new"); scrollToSection("transactions"); }}
+            className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm text-left hover:bg-slate-50 transition"
+          >
             <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                Total Bookings
-              </p>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Total Bookings</p>
               <FileText className="h-4 w-4 text-slate-400" />
             </div>
-            <p className="mt-4 text-3xl font-bold text-slate-900">
-              {totalBookings}
-            </p>
-          </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">{totalBookings}</p>
+            <p className="mt-1 text-xs text-slate-400">View list →</p>
+          </button>
 
           <div className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm">
             <div className="flex items-center justify-between">
@@ -745,17 +768,92 @@ const p2pPendingBookings = useMemo(
             </p>
           </div>
 
-          <div className="rounded-[28px] border border-red-100 bg-white/90 p-5 shadow-sm">
+          <button
+            onClick={() => scrollToSection("risk-review")}
+            className="rounded-[28px] border border-red-100 bg-white/90 p-5 shadow-sm text-left hover:bg-red-50 transition"
+          >
             <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-[0.18em] text-red-400">
-                Risk Alerts
-              </p>
+              <p className="text-xs uppercase tracking-[0.18em] text-red-400">Risk Alerts</p>
               <AlertTriangle className="h-4 w-4 text-red-400" />
             </div>
-            <p className="mt-4 text-3xl font-bold text-slate-900">
-              {riskItems.length}
-            </p>
-          </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">{riskItems.length}</p>
+            <p className="mt-1 text-xs text-red-400">View →</p>
+          </button>
+        </section>
+
+        {/* Today's row — same grid as above, one card per column */}
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <button
+            onClick={() => { setBookingTab("new"); setFinanceRange("today"); scrollToSection("transactions"); }}
+            className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm text-left hover:bg-slate-50 transition"
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Today's Bookings</p>
+              <FileText className="h-4 w-4 text-slate-400" />
+            </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">{todayBookings.length}</p>
+            <p className="mt-1 text-xs text-slate-400">{todayNewBookings} new →</p>
+          </button>
+
+          <button
+            onClick={() => scrollToSection("transactions")}
+            className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm text-left hover:bg-slate-50 transition"
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Today's Listings</p>
+              <Wrench className="h-4 w-4 text-slate-400" />
+            </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">{todayNewListings}</p>
+            <p className="mt-1 text-xs text-slate-400">tools added →</p>
+          </button>
+
+          <button
+            onClick={() => scrollToSection("transactions")}
+            className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm text-left hover:bg-slate-50 transition"
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Today's Users</p>
+              <Users className="h-4 w-4 text-slate-400" />
+            </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">{todayProfilesCount}</p>
+            <p className="mt-1 text-xs text-slate-400">signed up →</p>
+          </button>
+
+          <button
+            onClick={() => { setFinanceRange("today"); scrollToSection("transactions"); }}
+            className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm text-left hover:bg-slate-50 transition"
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Today's Turnover</p>
+              <CircleDollarSign className="h-4 w-4 text-slate-400" />
+            </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">${safeMoney(todayTurnover)}</p>
+            <p className="mt-1 text-xs text-slate-400">gross →</p>
+          </button>
+
+          <button
+            onClick={() => { setFinanceRange("today"); scrollToSection("transactions"); }}
+            className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm text-left hover:bg-slate-50 transition"
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Today's Revenue</p>
+              <TrendingUp className="h-4 w-4 text-slate-400" />
+            </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">${safeMoney(todayPlatformRevenue)}</p>
+            <p className="mt-1 text-xs text-slate-400">fees →</p>
+          </button>
+
+          <button
+            onClick={() => scrollToSection("risk-review")}
+            className="rounded-[28px] border border-red-100 bg-white/90 p-5 shadow-sm text-left hover:bg-red-50 transition"
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.18em] text-red-400">Today's Risks</p>
+              <AlertTriangle className="h-4 w-4 text-red-400" />
+            </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">{todayRiskAlerts}</p>
+            <p className="mt-1 text-xs text-red-400">missing info →</p>
+          </button>
         </section>
 
         <section className="grid gap-6 xl:grid-cols-3">

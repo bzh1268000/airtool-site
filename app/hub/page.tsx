@@ -144,7 +144,7 @@ export default function HubPage() {
 
       if (!isMounted) return;
 
-      setRole(user.role ?? profile?.role ?? null);
+      setRole(profile?.role ?? null);
       setHubId(profile?.hub_id || null);
 
       const { data: toolsData, error: toolsError } = await supabase
@@ -358,6 +358,39 @@ export default function HubPage() {
     { key: "pickup", label: "Pickup", count: pickupBookings.length },
     { key: "completed", label: "Completed", count: completedBookings.length },
   ];
+
+  const scrollToQueue = () => {
+    document.getElementById("booking-queue")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const todayStart = useMemo(() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d;
+  }, []);
+
+  const todayHubBookings = useMemo(
+    () => hubBookings.filter((b) => b.created_at && new Date(b.created_at) >= todayStart),
+    [hubBookings, todayStart]
+  );
+
+  const todayPending = useMemo(
+    () => todayHubBookings.filter((b) => b.status === "new" || b.status === "pending" || !b.status).length,
+    [todayHubBookings]
+  );
+
+  const todayTurnover = useMemo(
+    () => todayHubBookings.reduce((sum, b) => sum + Number(b.price_total || 0), 0),
+    [todayHubBookings]
+  );
+
+  const todayPlatformFee = useMemo(
+    () => todayHubBookings.reduce((sum, b) => sum + Number(b.platform_fee || 0), 0),
+    [todayHubBookings]
+  );
+
+  const todayFlags = useMemo(
+    () => todayHubBookings.filter((b) => !b.phone?.trim() || !b.address?.trim()).length,
+    [todayHubBookings]
+  );
 
   const updateBookingStatus = async (bookingId: number, nextStatus: string) => {
     const { error } = await supabase
@@ -683,77 +716,112 @@ export default function HubPage() {
         ) : null}
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-          <div className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm">
+          <button onClick={scrollToQueue} className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm text-left hover:bg-slate-50 transition">
             <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                Hub Tools
-              </p>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Hub Tools</p>
               <Wrench className="h-4 w-4 text-slate-400" />
             </div>
-            <p className="mt-4 text-3xl font-bold text-slate-900">
-              {hubToolCount}
-            </p>
-          </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">{hubToolCount}</p>
+            <p className="mt-1 text-xs text-slate-400">View queue →</p>
+          </button>
 
-          <div className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm">
+          <button onClick={scrollToQueue} className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm text-left hover:bg-slate-50 transition">
             <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                Hub Bookings
-              </p>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Hub Bookings</p>
               <FileText className="h-4 w-4 text-slate-400" />
             </div>
-            <p className="mt-4 text-3xl font-bold text-slate-900">
-              {hubBookings.length}
-            </p>
-          </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">{hubBookings.length}</p>
+            <p className="mt-1 text-xs text-slate-400">View queue →</p>
+          </button>
 
-          <div className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm">
+          <button onClick={() => { setTab("pending"); scrollToQueue(); }} className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm text-left hover:bg-slate-50 transition">
             <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                Pending Review
-              </p>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Pending Review</p>
               <ClipboardCheck className="h-4 w-4 text-slate-400" />
             </div>
-            <p className="mt-4 text-3xl font-bold text-slate-900">
-              {pendingBookings.length}
-            </p>
-          </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">{pendingBookings.length}</p>
+            <p className="mt-1 text-xs text-slate-400">View pending →</p>
+          </button>
 
           <div className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm">
             <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                Turnover
-              </p>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Turnover</p>
               <CircleDollarSign className="h-4 w-4 text-slate-400" />
             </div>
-            <p className="mt-4 text-3xl font-bold text-slate-900">
-              ${safeMoney(hubTurnover)}
-            </p>
+            <p className="mt-4 text-3xl font-bold text-slate-900">${safeMoney(hubTurnover)}</p>
           </div>
 
           <div className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm">
             <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                Platform Fee
-              </p>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Platform Fee</p>
               <Search className="h-4 w-4 text-slate-400" />
             </div>
-            <p className="mt-4 text-3xl font-bold text-slate-900">
-              ${safeMoney(hubPlatformFee)}
-            </p>
+            <p className="mt-4 text-3xl font-bold text-slate-900">${safeMoney(hubPlatformFee)}</p>
           </div>
 
-          <div className="rounded-[28px] border border-red-100 bg-white/90 p-5 shadow-sm">
+          <button onClick={scrollToQueue} className="rounded-[28px] border border-red-100 bg-white/90 p-5 shadow-sm text-left hover:bg-red-50 transition">
             <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-[0.18em] text-red-400">
-                Flags
-              </p>
+              <p className="text-xs uppercase tracking-[0.18em] text-red-400">Flags</p>
               <AlertTriangle className="h-4 w-4 text-red-400" />
             </div>
-            <p className="mt-4 text-3xl font-bold text-slate-900">
-              {flaggedCount}
-            </p>
+            <p className="mt-4 text-3xl font-bold text-slate-900">{flaggedCount}</p>
+            <p className="mt-1 text-xs text-red-400">View flagged →</p>
+          </button>
+        </section>
+
+        {/* Today's row */}
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <div className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Today's Tools</p>
+              <Wrench className="h-4 w-4 text-slate-400" />
+            </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">{hubToolCount}</p>
+            <p className="mt-1 text-xs text-slate-400">total in hub</p>
           </div>
+
+          <button onClick={scrollToQueue} className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm text-left hover:bg-slate-50 transition">
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Today's Bookings</p>
+              <FileText className="h-4 w-4 text-slate-400" />
+            </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">{todayHubBookings.length}</p>
+            <p className="mt-1 text-xs text-slate-400">{todayPending} pending →</p>
+          </button>
+
+          <button onClick={() => { setTab("pending"); scrollToQueue(); }} className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm text-left hover:bg-slate-50 transition">
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Today's Pending</p>
+              <ClipboardCheck className="h-4 w-4 text-slate-400" />
+            </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">{todayPending}</p>
+            <p className="mt-1 text-xs text-slate-400">needs review →</p>
+          </button>
+
+          <div className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Today's Turnover</p>
+              <CircleDollarSign className="h-4 w-4 text-slate-400" />
+            </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">${safeMoney(todayTurnover)}</p>
+          </div>
+
+          <div className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Today's Fees</p>
+              <Search className="h-4 w-4 text-slate-400" />
+            </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">${safeMoney(todayPlatformFee)}</p>
+          </div>
+
+          <button onClick={scrollToQueue} className="rounded-[28px] border border-red-100 bg-white/90 p-5 shadow-sm text-left hover:bg-red-50 transition">
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.18em] text-red-400">Today's Flags</p>
+              <AlertTriangle className="h-4 w-4 text-red-400" />
+            </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">{todayFlags}</p>
+            <p className="mt-1 text-xs text-red-400">missing info →</p>
+          </button>
         </section>
 
         <section className="grid gap-6 xl:grid-cols-3">
@@ -892,7 +960,7 @@ export default function HubPage() {
           </div>
         </section>
 
-        <section className="rounded-[30px] border border-slate-200 bg-white/90 p-6 shadow-sm">
+        <section id="booking-queue" className="scroll-mt-6 rounded-[30px] border border-slate-200 bg-white/90 p-6 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
