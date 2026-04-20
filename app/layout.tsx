@@ -31,10 +31,19 @@ export default function RootLayout({
     >
       <head>
         <style>{`
-          /* Hide Google Translate banner/toolbar */
-          .goog-te-banner-frame, .skiptranslate { display: none !important; }
+          /* Hide all Google Translate UI chrome */
+          .goog-te-banner-frame,
+          .skiptranslate,
+          .goog-te-gadget,
+          .goog-te-spinner,
+          #goog-gt-tt,
+          .goog-tooltip,
+          .goog-tooltip-content,
+          .VIpgJd-ZVi9od-aZ2wEe-OiiCO,
+          .VIpgJd-ZVi9od-aZ2wEe,
+          .VIpgJd-yAWNEb-hvhgNd,
+          .VIpgJd-yAWNEb-hvhgNd-IuizWc { display: none !important; }
           body { top: 0 !important; }
-          .goog-te-gadget { font-size: 0 !important; }
         `}</style>
       </head>
       <body className="min-h-screen bg-[#eef5fb]">
