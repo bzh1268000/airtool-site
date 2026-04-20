@@ -588,27 +588,32 @@ export default function OwnerPage() {
   };
 
   const loadProfile = async () => {
-    if (!userId) return;
     setProfileLoading(true);
-    const { data, error } = await supabase
+
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) { setProfileLoading(false); return; }
+
+    const { data } = await supabase
       .from("profiles")
       .select("full_name, phone, address, suburb, city, id_type, id_number, prefer_delivery, role, successful_transactions, bank_account_name, bank_account_number, bank_name")
-      .eq("id", userId)
+      .eq("id", authUser.id)
       .single();
-    if (!error && data) {
-      setProfile(data as Profile);
-      setFullName(data.full_name || "");
-      setPhone(data.phone || "");
-      setAddress(data.address || "");
-      setSuburb(data.suburb || "");
-      setCity(data.city || "");
-      setIdType(data.id_type || "");
-      setIdNumber(data.id_number || "");
-      setPreferDelivery(data.prefer_delivery || "pickup");
-      setBankAccountName(data.bank_account_name || "");
-      setBankAccountNumber(data.bank_account_number || "");
-      setBankName(data.bank_name || "");
-    }
+
+    const meta = authUser.user_metadata || {};
+    const authName = meta.full_name || meta.name || authUser.email?.split("@")[0] || "";
+
+    if (data) setProfile(data as Profile);
+    setFullName(data?.full_name || authName);
+    setPhone(data?.phone || meta.phone || meta.phone_number || "");
+    setAddress(data?.address || meta.address || "");
+    setSuburb(data?.suburb || meta.suburb || "");
+    setCity(data?.city || meta.city || "");
+    setIdType(data?.id_type || meta.id_type || "");
+    setIdNumber(data?.id_number || meta.id_number || "");
+    setPreferDelivery(data?.prefer_delivery || meta.prefer_delivery || "pickup");
+    setBankAccountName(data?.bank_account_name || "");
+    setBankAccountNumber(data?.bank_account_number || "");
+    setBankName(data?.bank_name || "");
     setProfileLoading(false);
   };
 

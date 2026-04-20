@@ -56,11 +56,24 @@ export default function ListToolPage() {
   const [error, setError]         = useState("");
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user?.email) { router.replace("/login"); return; }
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user?.email) { router.replace("/login?redirect=/tools"); return; }
       setUserEmail(user.email);
       setUserId(user.id);
       setAuthReady(true);
+
+      // Prefill location from profile
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("suburb, city")
+        .eq("id", user.id)
+        .single();
+
+      const meta = user.user_metadata || {};
+      const suburb = profile?.suburb || meta.suburb || "";
+      const city   = profile?.city   || meta.city   || "";
+      if (suburb) setLocation(suburb);
+      else if (city) setLocation(city);
     });
   }, [router]);
 

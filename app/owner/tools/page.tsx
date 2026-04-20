@@ -29,6 +29,9 @@ export default function OwnerToolsPage() {
   const [pricePerDay, setPricePerDay] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [listingType, setListingType] = useState("owner_approved");
+  const [suburb, setSuburb] = useState("");
+  const [city, setCity] = useState("");
+  const [locationDetecting, setLocationDetecting] = useState(false);
 
   const fetchTools = async (email: string) => {
     const { data, error } = await supabase
@@ -58,6 +61,41 @@ export default function OwnerToolsPage() {
 
       setUserEmail(user.email);
       await fetchTools(user.email);
+
+      // Try profile location first
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("suburb, city")
+        .eq("id", user.id)
+        .single();
+
+      if (profile?.suburb || profile?.city) {
+        if (profile.suburb) setSuburb(profile.suburb);
+        if (profile.city) setCity(profile.city);
+      } else if (typeof navigator !== "undefined" && navigator.geolocation) {
+        setLocationDetecting(true);
+        navigator.geolocation.getCurrentPosition(
+          async (pos) => {
+            try {
+              const res = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`,
+                { headers: { "Accept-Language": navigator.language || "en" } }
+              );
+              const json = await res.json();
+              const addr = json.address || {};
+              setSuburb(addr.suburb || addr.village || addr.hamlet || "");
+              setCity(addr.city || addr.town || addr.state_district || "");
+            } catch {
+              // silently ignore
+            } finally {
+              setLocationDetecting(false);
+            }
+          },
+          () => setLocationDetecting(false),
+          { timeout: 8000 }
+        );
+      }
+
       setLoading(false);
     };
 
@@ -94,6 +132,8 @@ export default function OwnerToolsPage() {
         image_url: imageUrl.trim() || null,
         listing_type: listingType,
         owner_email: userEmail,
+        suburb: suburb.trim() || null,
+        city: city.trim() || null,
         status: "active",
       },
     ]);
@@ -110,6 +150,8 @@ export default function OwnerToolsPage() {
     setPricePerDay("");
     setImageUrl("");
     setListingType("owner_approved");
+    setSuburb("");
+    setCity("");
     setMessage("Tool listed successfully.");
 
     await fetchTools(userEmail);
@@ -201,6 +243,28 @@ export default function OwnerToolsPage() {
                     placeholder="https://..."
                     className="w-full rounded-2xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
                   />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-gray-700">Suburb</label>
+                    <input
+                      value={suburb}
+                      onChange={(e) => setSuburb(e.target.value)}
+                      placeholder={locationDetecting ? "Detecting…" : "e.g. Oxford"}
+                      className="w-full rounded-2xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-gray-700">City / Region</label>
+                    <input
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      placeholder={locationDetecting ? "Detecting…" : "e.g. Christchurch"}
+                      className="w-full rounded-2xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
+                    />
+                  </div>
+                  <p className="col-span-2 text-xs text-gray-400">📍 Detected from your location — edit if needed</p>
                 </div>
 
                 <div>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 
+
 type HubRow = {
   id: string;
   name: string;
@@ -209,14 +210,38 @@ const { data, error } = await supabase
         <div className="relative z-20 mx-auto max-w-7xl px-4 pb-10 pt-8 md:px-6 md:pb-24 md:pt-28 overflow-visible">
           <div className="mx-auto max-w-4xl text-center overflow-visible">
             <div className="inline-flex rounded-full bg-white/70 px-4 py-2 text-xs font-medium uppercase tracking-[0.22em] text-[#2f641f] shadow-sm">
-              Local tool sharing + Hub-managed fulfilment
+              Local tool sharing · New Zealand
             </div>
 
-            <h1 className="mt-6 text-4xl font-semibold md:text-6xl">
-              {selectedHubName}
+            <h1 className="mt-6 text-4xl font-semibold md:text-6xl leading-tight">
+              Rent tools near you —<br className="hidden md:block" /> or earn from yours
             </h1>
 
-            <div className="relative z-[100] mx-auto mt-8 max-w-7xl px-6">
+            <p className="mt-3 text-lg text-black/60 font-medium">
+              No hassle. We handle bookings &amp; payments.
+            </p>
+
+            {/* Owner / Renter split */}
+            <div className="mx-auto mt-6 flex max-w-xl gap-3">
+            <button
+              onClick={() => router.push("/login?redirect=/tools")}
+              className="hover:scale-105 transition-transform text-left bg-green-700 text-white px-10 py-6 rounded-2xl shadow-2xl hover:bg-green-800"
+            >
+              <p className="text-xs mb-1">🔥 Start here</p>
+              <p className="text-white text-lg font-semibold">💰 Start earning today</p>
+              <p className="text-sm opacity-90 mt-1">List your first tool</p>
+            </button>
+              <button
+                onClick={() => router.push("/search")}
+                className="flex flex-1 flex-col items-center gap-1 rounded-2xl bg-[#8bbb46]/90 px-5 py-4 text-white hover:bg-[#8bbb46] transition"
+              >
+                <span className="text-2xl">🔧</span>
+                <span className="font-semibold text-sm">Find tools near you</span>
+                <span className="text-xs text-white/70">Browse available tools</span>
+              </button>
+            </div>
+
+            <div className="relative z-[100] mx-auto mt-6 max-w-7xl px-6">
               <div className="grid w-full gap-3 rounded-[24px] bg-white p-4 shadow-lg md:grid-cols-[1.6fr_1fr_1fr_auto] md:items-center">
                 <input
                   type="text"

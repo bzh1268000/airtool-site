@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { User, UserRound, Menu, X, LayoutDashboard } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
+import LanguageSwitcher from "./language-switcher";
 
 export default function Navbar() {
   const router = useRouter();
@@ -83,10 +84,12 @@ export default function Navbar() {
         <nav className="hidden items-center gap-10 md:flex">
           <Link href="/search"     className="text-sm text-black/70 hover:text-black">Search</Link>
           <Link href="/categories" className="text-sm text-black/70 hover:text-black">Categories</Link>
-          <Link href="/tools"      className="text-sm text-black/70 hover:text-black">List Tool</Link>
+          <button onClick={() => router.push(user ? "/tools" : "/login?redirect=/tools")} className="text-sm text-black/70 hover:text-black">List Tool</button>
         </nav>
 
         <div className="flex items-center gap-2 md:gap-3">
+
+          <LanguageSwitcher />
 
           {/* People icon — signs out if logged in, goes to login if not */}
           <div className="relative group">
@@ -136,7 +139,7 @@ export default function Navbar() {
         <div className="md:hidden border-t border-black/10 bg-white px-4 py-4 flex flex-col gap-4">
           <Link href="/search"     onClick={() => setMenuOpen(false)} className="text-sm text-black/70 hover:text-black">Search</Link>
           <Link href="/categories" onClick={() => setMenuOpen(false)} className="text-sm text-black/70 hover:text-black">Categories</Link>
-          <Link href="/tools"      onClick={() => setMenuOpen(false)} className="text-sm text-black/70 hover:text-black">List Tool</Link>
+          <button onClick={() => { router.push(user ? "/tools" : "/login?redirect=/tools"); setMenuOpen(false); }} className="text-sm text-black/70 hover:text-black">List Tool</button>
           <button
             onClick={() => { handleDashboard(); setMenuOpen(false); }}
             className="flex items-center gap-2 rounded-full bg-[#2f641f] px-4 py-2 text-sm font-semibold text-white w-fit"
