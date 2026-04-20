@@ -194,7 +194,9 @@ export default function ListToolPage() {
 
   if (!authReady) {
     return (
-      <main className="min-h-screen bg-[#f7f8f5] flex items-center justify-center">
+      <main className="relative min-h-screen flex items-center justify-center">
+        <div className="absolute inset-0 -z-10 bg-cover bg-center" style={{ backgroundImage: "url('/sky.jpg')" }} />
+        <div className="pointer-events-none absolute inset-0 -z-10 bg-white/50" />
         <div className="text-sm text-black/40">Checking sign-in…</div>
       </main>
     );
@@ -202,7 +204,11 @@ export default function ListToolPage() {
 
 
   return (
-    <main className="min-h-screen bg-[#f7f8f5] py-10 px-4">
+    <main className="relative min-h-screen py-10 px-4">
+      {/* Background — same as homepage */}
+      <div className="absolute inset-0 -z-10 bg-cover bg-center" style={{ backgroundImage: "url('/sky.jpg')" }} />
+      <div className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(214,234,252,0.55),rgba(244,247,251,0.35))]" />
+      <div className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(240,246,255,0.45),rgba(255,255,255,0.60))]" />
       <div className="mx-auto max-w-2xl">
 
         {/* Header */}
@@ -219,7 +225,7 @@ export default function ListToolPage() {
         <form onSubmit={handleSubmit} className="space-y-5">
 
           {/* ── Photos & Video ───────────────────────────────────────────── */}
-          <section className="rounded-[28px] bg-white p-6 shadow-sm space-y-5">
+          <section className="rounded-[28px] bg-white/75 backdrop-blur-md border border-white/60 p-6 shadow-xl space-y-5">
             <div>
               <h2 className="text-lg font-semibold">Photos <span className="text-sm font-normal text-black/40">(main photo required)</span></h2>
               <p className="mt-1 text-sm text-black/50">First photo is the main image. Photos 2 &amp; 3 are optional.</p>
@@ -304,7 +310,7 @@ export default function ListToolPage() {
           </section>
 
           {/* ── Basics ───────────────────────────────────────────────────── */}
-          <section className="rounded-[28px] bg-white p-6 shadow-sm space-y-5">
+          <section className="rounded-[28px] bg-white/75 backdrop-blur-md border border-white/60 p-6 shadow-xl space-y-5">
             <h2 className="text-lg font-semibold">The basics</h2>
 
             <div>
@@ -446,7 +452,7 @@ export default function ListToolPage() {
           </section>
 
           {/* ── Condition ────────────────────────────────────────────────── */}
-          <section className="rounded-[28px] bg-white p-6 shadow-sm">
+          <section className="rounded-[28px] bg-white/75 backdrop-blur-md border border-white/60 p-6 shadow-xl">
             <h2 className="text-lg font-semibold">Tool condition *</h2>
             <p className="mt-1 text-sm text-black/50">Your honest self-assessment helps renters set expectations.</p>
 
@@ -487,7 +493,7 @@ export default function ListToolPage() {
           </section>
 
           {/* ── Description & notes ──────────────────────────────────────── */}
-          <section className="rounded-[28px] bg-white p-6 shadow-sm space-y-5">
+          <section className="rounded-[28px] bg-white/75 backdrop-blur-md border border-white/60 p-6 shadow-xl space-y-5">
             <h2 className="text-lg font-semibold">Description &amp; notes</h2>
 
             <div>

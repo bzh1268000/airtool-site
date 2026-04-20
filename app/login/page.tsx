@@ -123,8 +123,12 @@ function LoginContent() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f7f7f2] px-4 py-12">
-      <div className="w-full max-w-md rounded-3xl border border-black/10 bg-white p-8 shadow-md">
+    <main className="relative flex min-h-screen items-center justify-center px-4 py-12 overflow-hidden">
+      {/* Background image — same as homepage hero */}
+      <div className="absolute inset-0 -z-10 bg-cover bg-center" style={{ backgroundImage: "url('/sky.jpg')" }} />
+      <div className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(214,234,252,0.55),rgba(244,247,251,0.35))]" />
+      <div className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(240,246,255,0.45),rgba(255,255,255,0.60))]" />
+      <div className="w-full max-w-md rounded-3xl border border-white/60 bg-white/75 p-8 shadow-xl backdrop-blur-md">
         <div className="mb-6 text-center">
           <div className="text-3xl font-bold text-[#2f641f]">AirTool.nz</div>
           <div className="mt-1 text-sm text-black/50 uppercase tracking-widest">Welcome back</div>
