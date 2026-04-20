@@ -150,12 +150,13 @@ const { data, error } = await supabase
       const matchCategory =
         !selectedCategoryId || tool.category_id === selectedCategoryId;
 
-      const hubName = hubsData.find((h) => h.id === selectedHubId)?.name || "";
+      const hubName = hubsData.find((h) => h.id === selectedHubId)?.name?.toLowerCase() || "";
       const matchHub =
         !selectedHubId ||
         selectedHubId === "nearest" ||
         tool.hub_id === selectedHubId ||
-        (hubName && tool.city?.toLowerCase() === hubName.toLowerCase());
+        (hubName && tool.city?.toLowerCase() === hubName) ||
+        (hubName && (tool as any).suburb?.toLowerCase() === hubName);
 
       return matchName && matchCategory && matchHub;
     });

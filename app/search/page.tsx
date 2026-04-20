@@ -110,7 +110,9 @@ let query = supabase
       if (selectedHubId && selectedHubId !== "nearest") {
         const hubName = hubsData.find((h) => h.id === selectedHubId)?.name || "";
         if (hubName) {
-          query = query.or(`hub_id.eq.${selectedHubId},city.ilike.${hubName}`);
+          query = query.or(
+            `hub_id.eq.${selectedHubId},city.ilike.${hubName},suburb.ilike.${hubName}`
+          );
         } else {
           query = query.eq("hub_id", selectedHubId);
         }
@@ -170,7 +172,9 @@ let query = supabase
       if (selectedHubId && selectedHubId !== "nearest") {
         const hubName = hubsData.find((h) => h.id === selectedHubId)?.name || "";
         if (hubName) {
-          query = query.or(`hub_id.eq.${selectedHubId},city.ilike.${hubName}`);
+          query = query.or(
+            `hub_id.eq.${selectedHubId},city.ilike.${hubName},suburb.ilike.${hubName}`
+          );
         } else {
           query = query.eq("hub_id", selectedHubId);
         }
