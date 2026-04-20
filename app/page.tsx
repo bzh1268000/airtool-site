@@ -111,7 +111,7 @@ export default function AirToolNZHomepage() {
 const { data, error } = await supabase
   .from("tools")
   .select(
-    "id, name, price_per_day, image_url, listing_type, hub_id, category_id, city"
+    "id, name, price_per_day, image_url, listing_type, hub_id, category_id, city, suburb, pickup_notes"
   )
   .order("id", { ascending: false });
       console.log("tools error", error);
@@ -155,8 +155,9 @@ const { data, error } = await supabase
         !selectedHubId ||
         selectedHubId === "nearest" ||
         tool.hub_id === selectedHubId ||
-        (hubName && tool.city?.toLowerCase() === hubName) ||
-        (hubName && (tool as any).suburb?.toLowerCase() === hubName);
+        (hubName && tool.city?.toLowerCase().includes(hubName)) ||
+        (hubName && (tool as any).suburb?.toLowerCase().includes(hubName)) ||
+        (hubName && (tool as any).pickup_notes?.toLowerCase().includes(hubName));
 
       return matchName && matchCategory && matchHub;
     });

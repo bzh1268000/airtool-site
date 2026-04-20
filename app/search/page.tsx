@@ -95,7 +95,7 @@ function SearchContent() {
 let query = supabase
   .from("tools")
   .select(
-    "id, name, description, price_per_day, promo_price, promo_label, sale_price, image_url, listing_type, hub_id, category_id, status, owner_email"
+    "id, name, description, price_per_day, promo_price, promo_label, sale_price, image_url, listing_type, hub_id, category_id, status, owner_email, suburb, city, pickup_notes"
   )
   .neq("status", "sold");
 
@@ -111,7 +111,7 @@ let query = supabase
         const hubName = hubsData.find((h) => h.id === selectedHubId)?.name || "";
         if (hubName) {
           query = query.or(
-            `hub_id.eq.${selectedHubId},city.ilike.${hubName},suburb.ilike.${hubName}`
+            `hub_id.eq.${selectedHubId},city.ilike.%${hubName}%,suburb.ilike.%${hubName}%,pickup_notes.ilike.%${hubName}%`
           );
         } else {
           query = query.eq("hub_id", selectedHubId);
@@ -173,7 +173,7 @@ let query = supabase
         const hubName = hubsData.find((h) => h.id === selectedHubId)?.name || "";
         if (hubName) {
           query = query.or(
-            `hub_id.eq.${selectedHubId},city.ilike.${hubName},suburb.ilike.${hubName}`
+            `hub_id.eq.${selectedHubId},city.ilike.%${hubName}%,suburb.ilike.%${hubName}%,pickup_notes.ilike.%${hubName}%`
           );
         } else {
           query = query.eq("hub_id", selectedHubId);
