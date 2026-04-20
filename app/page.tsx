@@ -24,6 +24,7 @@ type ToolCard = {
   pickup_hub?: string | null;
   hub_id?: string | null;
   category_id?: string | null;
+  city?: string | null;
 };
 
 export default function AirToolNZHomepage() {
@@ -110,7 +111,7 @@ export default function AirToolNZHomepage() {
 const { data, error } = await supabase
   .from("tools")
   .select(
-    "id, name, price_per_day, image_url, listing_type, hub_id, category_id"
+    "id, name, price_per_day, image_url, listing_type, hub_id, category_id, city"
   )
   .order("id", { ascending: false });
       console.log("tools error", error);
@@ -149,10 +150,12 @@ const { data, error } = await supabase
       const matchCategory =
         !selectedCategoryId || tool.category_id === selectedCategoryId;
 
+      const hubName = hubsData.find((h) => h.id === selectedHubId)?.name || "";
       const matchHub =
         !selectedHubId ||
         selectedHubId === "nearest" ||
-        tool.hub_id === selectedHubId;
+        tool.hub_id === selectedHubId ||
+        (hubName && tool.city?.toLowerCase() === hubName.toLowerCase());
 
       return matchName && matchCategory && matchHub;
     });

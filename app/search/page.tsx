@@ -108,7 +108,12 @@ let query = supabase
       }
 
       if (selectedHubId && selectedHubId !== "nearest") {
-        query = query.eq("hub_id", selectedHubId);
+        const hubName = hubsData.find((h) => h.id === selectedHubId)?.name || "";
+        if (hubName) {
+          query = query.or(`hub_id.eq.${selectedHubId},city.ilike.${hubName}`);
+        } else {
+          query = query.eq("hub_id", selectedHubId);
+        }
       }
 
       if (promoOnly) {
@@ -163,7 +168,12 @@ let query = supabase
   .neq("status", "sold");
 
       if (selectedHubId && selectedHubId !== "nearest") {
-        query = query.eq("hub_id", selectedHubId);
+        const hubName = hubsData.find((h) => h.id === selectedHubId)?.name || "";
+        if (hubName) {
+          query = query.or(`hub_id.eq.${selectedHubId},city.ilike.${hubName}`);
+        } else {
+          query = query.eq("hub_id", selectedHubId);
+        }
       }
 
       const { data, error } = await query.order("id", { ascending: false }).limit(8);
