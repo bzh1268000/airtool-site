@@ -29,6 +29,11 @@ type Booking = {
   created_at: string | null;
   owner_email: string | null;
   paid_at?: string | null;
+  payout_status?: string | null;
+  payout_amount?: number | null;
+  payout_bank_account?: string | null;
+  payout_date?: string | null;
+  payout_note?: string | null;
 };
 
 type Tool = {
@@ -75,6 +80,9 @@ type Profile = {
   prefer_delivery?: string | null;
   role?: string | null;
   successful_transactions?: number | null;
+  bank_account_name?: string | null;
+  bank_account_number?: string | null;
+  bank_name?: string | null;
 };
 
 function ownerPayout(priceTotal: number | null, platformFee: number | null): number {
@@ -145,7 +153,8 @@ export default function OwnerPage() {
     return (saved === "bookings" || saved === "tools") ? saved : "bookings";
   });
   const [unreadCount, setUnreadCount] = useState(0);
-  const [sales, setSales] = useState<{ id: number; tool_name: string; sale_price: number; platform_commission: number; buyer_email: string; buyer_name: string; paid_at: string; payout_status: string }[]>([]);
+  const [sales, setSales] = useState<{ id: number; tool_name: string; sale_price: number; platform_commission: number; buyer_email: string; buyer_name: string; paid_at: string; payout_status: string; payout_amount: number | null; payout_bank_account: string | null; payout_date: string | null; payout_note: string | null }[]>([]);
+  const [saleCommissionPct, setSaleCommissionPct] = useState<number>(10);
   const router = useRouter();
 
   // My Tools state
@@ -181,6 +190,9 @@ export default function OwnerPage() {
   const [idType, setIdType] = useState("");
   const [idNumber, setIdNumber] = useState("");
   const [preferDelivery, setPreferDelivery] = useState("pickup");
+  const [bankAccountName, setBankAccountName] = useState("");
+  const [bankAccountNumber, setBankAccountNumber] = useState("");
+  const [bankName, setBankName] = useState("");
 
   // Category save state
   const [savingCategoryId, setSavingCategoryId] = useState<number | null>(null);
@@ -245,13 +257,19 @@ export default function OwnerPage() {
     setXpMessageConvos(new Set((sentMsgs || []).map((m) => m.booking_id)).size);
     setUnreadCount(unread || 0);
 
-    // Fetch tool sales for this owner
-    const { data: salesData } = await supabase
-      .from("tool_sales")
-      .select("id, tool_name, sale_price, platform_commission, buyer_email, buyer_name, paid_at, payout_status")
-      .eq("owner_email", userEmail)
-      .order("paid_at", { ascending: false });
+    // Fetch tool sales + commission rate in parallel
+    const [{ data: salesData, error: salesError }, { data: commissionSetting }] = await Promise.all([
+      supabase.from("tool_sales")
+        .select("id, tool_name, sale_price, platform_commission, buyer_email, buyer_name, paid_at, payout_status, payout_amount, payout_bank_account, payout_date, payout_note")
+        .eq("owner_email", userEmail)
+        .order("paid_at", { ascending: false }),
+      supabase.from("platform_settings").select("value").eq("key", "sale_commission_pct").single(),
+    ]);
+    console.log("SALES_EMAIL:", userEmail);
+    console.log("SALES_ERROR:", salesError?.message || salesError?.code || "none");
+    console.log("SALES_COUNT:", salesData?.length ?? "null");
     if (salesData) setSales(salesData as any);
+    if (commissionSetting?.value) setSaleCommissionPct(Number(commissionSetting.value));
   };
 
   const sendSystemMessage = async (bookingId: number, renterEmail: string | null | undefined, text: string) => {
@@ -400,6 +418,17 @@ export default function OwnerPage() {
         }
       }
 
+      // Fetch tool sales + commission rate
+      const [{ data: salesData }, { data: commissionSetting }] = await Promise.all([
+        supabase.from("tool_sales")
+          .select("id, tool_name, sale_price, platform_commission, buyer_email, buyer_name, paid_at, payout_status, payout_amount, payout_bank_account, payout_date, payout_note")
+          .eq("owner_email", user.email)
+          .order("paid_at", { ascending: false }),
+        supabase.from("platform_settings").select("value").eq("key", "sale_commission_pct").single(),
+      ]);
+      if (salesData) setSales(salesData as any);
+      if (commissionSetting?.value) setSaleCommissionPct(Number(commissionSetting.value));
+
       setLoading(false);
     };
 
@@ -419,6 +448,7 @@ export default function OwnerPage() {
 
   useEffect(() => {
     if (!userEmail) return;
+    fetchBookings();
     window.addEventListener("focus", fetchBookings);
     const interval = setInterval(fetchBookings, 30000);
     return () => {
@@ -562,7 +592,7 @@ export default function OwnerPage() {
     setProfileLoading(true);
     const { data, error } = await supabase
       .from("profiles")
-      .select("full_name, phone, address, suburb, city, id_type, id_number, prefer_delivery, role, successful_transactions")
+      .select("full_name, phone, address, suburb, city, id_type, id_number, prefer_delivery, role, successful_transactions, bank_account_name, bank_account_number, bank_name")
       .eq("id", userId)
       .single();
     if (!error && data) {
@@ -575,6 +605,9 @@ export default function OwnerPage() {
       setIdType(data.id_type || "");
       setIdNumber(data.id_number || "");
       setPreferDelivery(data.prefer_delivery || "pickup");
+      setBankAccountName(data.bank_account_name || "");
+      setBankAccountNumber(data.bank_account_number || "");
+      setBankName(data.bank_name || "");
     }
     setProfileLoading(false);
   };
@@ -590,7 +623,7 @@ export default function OwnerPage() {
     setProfileMsg("");
     const { error } = await supabase
       .from("profiles")
-      .update({ full_name: fullName, phone, address, suburb, city, id_type: idType, id_number: idNumber, prefer_delivery: preferDelivery })
+      .update({ full_name: fullName, phone, address, suburb, city, id_type: idType, id_number: idNumber, prefer_delivery: preferDelivery, bank_account_name: bankAccountName || null, bank_account_number: bankAccountNumber || null, bank_name: bankName || null })
       .eq("id", userId);
     if (error) {
       setProfileMsg("❌ Failed to save: " + error.message);
@@ -629,14 +662,17 @@ export default function OwnerPage() {
     [bookings, sales],
   );
 
-  // Actual income earned — completed rentals + paid-out sales
+  // Paid out — completed rentals where payout is done + paid tool sales
   const grossIncome = useMemo(
     () =>
       bookings
-        .filter((b) => b.status === "completed")
+        .filter((b) => b.status === "completed" && b.payout_status === "paid")
         .reduce((sum, b) => sum + ownerPayout(b.price_total, b.platform_fee), 0) +
-      sales.filter((s) => s.payout_status === "paid").reduce((sum, s) => sum + Number(s.sale_price || 0) - Number(s.platform_commission || 0), 0),
-    [bookings, sales],
+      sales.filter((s) => s.payout_status === "paid").reduce((sum, s) => {
+        const c = Number(s.platform_commission) > 0 ? Number(s.platform_commission) : Math.round(Number(s.sale_price) * saleCommissionPct) / 100;
+        return sum + Number(s.sale_price) - c;
+      }, 0),
+    [bookings, sales, saleCommissionPct],
   );
 
   // ── Experience / trust points (derived — no extra DB column needed) ─────────
@@ -661,15 +697,19 @@ export default function OwnerPage() {
   const displayXp = dbXp !== null ? dbXp : ownerXp;
 
   const xpLevel =
-    displayXp >= 20 ? "Champion" :
-    displayXp >= 10 ? "Trusted"  :
-    displayXp >= 5  ? "Regular"  :
+    displayXp >= 200 ? "Legend"   :
+    displayXp >= 100 ? "Champion" :
+    displayXp >= 60  ? "Pro"      :
+    displayXp >= 30  ? "Trusted"  :
+    displayXp >= 10  ? "Regular"  :
     "Newcomer";
 
   const xpBadgeColor =
-    displayXp >= 20 ? "bg-amber-500"  :
-    displayXp >= 10 ? "bg-indigo-600" :
-    displayXp >= 5  ? "bg-blue-500"   :
+    displayXp >= 200 ? "bg-yellow-500"  :
+    displayXp >= 100 ? "bg-amber-500"   :
+    displayXp >= 60  ? "bg-purple-600"  :
+    displayXp >= 30  ? "bg-indigo-600"  :
+    displayXp >= 10  ? "bg-blue-500"    :
     "bg-gray-400";
 
   // ── Lifecycle: mark tool as returned (in_use → return_check) ─────────────────
@@ -832,18 +872,30 @@ export default function OwnerPage() {
       <div className="grid gap-6">
 
         {/* Stats */}
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           {[
-            { label: "Total Bookings",    value: totalBookings,              sub: `${newBookings} new` },
-            { label: "Confirmed",         value: confirmedBookings,          sub: `${completedBookings} completed` },
-            { label: "Pending Income",    value: `$${pendingIncome.toFixed(2)}`,  sub: "in escrow" },
-            { label: "Gross Income",      value: `$${grossIncome.toFixed(2)}`,    sub: "after platform fee" },
+            { label: "Total Bookings",    value: totalBookings,              sub: `${newBookings} new`,              tab: "bookings", scrollTo: "bookings-list" },
+            { label: "Confirmed",         value: confirmedBookings,          sub: `${completedBookings} completed`,  tab: "bookings", scrollTo: "bookings-list" },
+            { label: "Pending Income",    value: `$${pendingIncome.toFixed(2)}`,  sub: "in escrow",              tab: "bookings", scrollTo: "bookings-list" },
+            { label: "Paid Out",           value: `$${grossIncome.toFixed(2)}`,    sub: "confirmed received",     tab: "bookings", scrollTo: "bookings-list" },
+            { label: "Tools Sold",        value: sales.length,               sub: sales.filter(s => s.payout_status === "paid").length > 0 ? `${sales.filter(s => s.payout_status === "paid").length} paid out` : sales.length > 0 ? "awaiting payout" : "no sales yet", tab: "bookings", scrollTo: "tool-sales-section" },
           ].map((s) => (
-            <div key={s.label} className="rounded-3xl border border-gray-200 bg-white/20 p-4 backdrop-blur-md">
+            <button
+              key={s.label}
+              onClick={() => {
+                handleTabChange(s.tab as OwnerTab);
+                if ((s as any).scrollTo) {
+                  setTimeout(() => {
+                    document.getElementById((s as any).scrollTo)?.scrollIntoView({ behavior: "smooth" });
+                  }, 100);
+                }
+              }}
+              className="rounded-3xl border border-gray-200 bg-white/20 p-4 backdrop-blur-md text-left hover:bg-white/40 transition"
+            >
               <p className="text-sm text-gray-500">{s.label}</p>
               <p className="mt-2 text-3xl font-bold text-gray-900">{s.value}</p>
               <p className="mt-1 text-xs text-gray-400">{s.sub}</p>
-            </div>
+            </button>
           ))}
         </div>
 
@@ -875,10 +927,12 @@ export default function OwnerPage() {
               <div className="hidden sm:block shrink-0 text-right">
                 <p className="text-xs text-gray-400">Next level</p>
                 <p className="text-sm font-bold text-indigo-600">
-                  {displayXp >= 20 ? "Max reached 🏆" :
-                   displayXp >= 10 ? `${20 - displayXp} pts to Champion` :
-                   displayXp >= 5  ? `${10 - displayXp} pts to Trusted`  :
-                   `${5 - displayXp} pts to Regular`}
+                  {displayXp >= 200 ? "Max reached 🏆" :
+                   displayXp >= 100 ? `${200 - displayXp} pts to Legend`   :
+                   displayXp >= 60  ? `${100 - displayXp} pts to Champion` :
+                   displayXp >= 30  ? `${60  - displayXp} pts to Pro`      :
+                   displayXp >= 10  ? `${30  - displayXp} pts to Trusted`  :
+                   `${10 - displayXp} pts to Regular`}
                 </p>
               </div>
             </div>
@@ -1017,6 +1071,26 @@ export default function OwnerPage() {
                     </div>
                   </div>
 
+                  {/* Bank details for payout */}
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 space-y-3">
+                    <p className="text-xs font-bold uppercase tracking-widest text-blue-700">💳 Payout Bank Details</p>
+                    <p className="text-xs text-blue-600/80">Optional — only needed if you plan to sell a tool outright. Fill in before listing for sale so admin can transfer your proceeds.</p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-black/60">Account Name</label>
+                        <input className="w-full rounded-xl border border-black/15 px-4 py-3 text-sm outline-none focus:border-blue-400" value={bankAccountName} onChange={(e) => setBankAccountName(e.target.value)} placeholder="e.g. John Smith" />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-black/60">Bank Name</label>
+                        <input className="w-full rounded-xl border border-black/15 px-4 py-3 text-sm outline-none focus:border-blue-400" value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="e.g. ANZ, ASB, BNZ, Westpac" />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="mb-1 block text-xs font-semibold text-black/60">Account Number</label>
+                        <input className="w-full rounded-xl border border-black/15 px-4 py-3 text-sm outline-none focus:border-blue-400" value={bankAccountNumber} onChange={(e) => setBankAccountNumber(e.target.value)} placeholder="e.g. 01-0123-0123456-00" />
+                      </div>
+                    </div>
+                  </div>
+
                   {profileMsg && (
                     <div className={`rounded-xl px-4 py-3 text-sm ${profileMsg.startsWith("✅") ? "bg-[#f0f8e8] text-[#2f641f]" : "bg-red-50 text-red-600"}`}>
                       {profileMsg}
@@ -1101,11 +1175,11 @@ export default function OwnerPage() {
             </div>
 
             {bookings.length === 0 ? (
-              <div className="rounded-3xl border border-gray-200 bg-white/75 p-6 shadow-sm backdrop-blur">
+              <div id="bookings-list" className="rounded-3xl border border-gray-200 bg-white/75 p-6 shadow-sm backdrop-blur">
                 <p className="text-gray-600">No owner bookings found.</p>
               </div>
             ) : (
-              <div className="grid gap-5">
+              <div id="bookings-list" className="grid gap-5">
                 {bookings.map((b) => (
                   <div key={b.id} className="rounded-3xl border border-gray-200 bg-white/55 p-6 shadow-sm backdrop-blur">
                     <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -1154,18 +1228,28 @@ export default function OwnerPage() {
                       <p><span className="font-medium text-gray-900">Price total:</span> ${Number(b.price_total || 0).toFixed(2)}</p>
                       <p><span className="font-medium text-gray-900">Platform fee:</span> ${Number(b.platform_fee || 0).toFixed(2)}</p>
                       <p>
-                        <span className="font-medium text-gray-900">Your payout (85%):</span>{" "}
-                        <span className={b.paid_at ? "font-semibold text-green-700" : "text-gray-500"}>
+                        <span className="font-medium text-gray-900">Your payout:</span>{" "}
+                        <span className="font-semibold text-green-700">
                           ${ownerPayout(b.price_total, b.platform_fee).toFixed(2)}
                         </span>
                         {" "}
-                        {b.paid_at
-                          ? <span className="text-xs font-semibold text-orange-500">(in escrow)</span>
-                          : b.status === "confirmed"
-                            ? <span className="text-xs text-gray-400">(awaiting renter payment)</span>
-                            : null
+                        {b.status === "completed" && b.payout_status === "paid"
+                          ? <span className="text-xs font-semibold text-green-600">✅ Paid out</span>
+                          : b.status === "completed"
+                            ? <span className="text-xs font-semibold text-orange-500">⏳ Awaiting payout from AirTool</span>
+                            : ["confirmed","in_use","return_check"].includes(b.status || "")
+                              ? <span className="text-xs text-orange-500">(in escrow)</span>
+                              : null
                         }
                       </p>
+                      {b.status === "completed" && b.payout_status === "paid" && (
+                        <div className="md:col-span-2 xl:col-span-3 rounded-xl border border-green-200 bg-green-50 px-3 py-2 space-y-0.5 text-xs">
+                          {b.payout_amount && <div className="text-green-700 font-semibold">${Number(b.payout_amount).toFixed(2)} transferred</div>}
+                          {b.payout_bank_account && <div className="text-gray-500">To: {b.payout_bank_account}</div>}
+                          {b.payout_date && <div className="text-gray-400">{new Date(b.payout_date).toLocaleDateString("en-NZ", { dateStyle: "medium" })}</div>}
+                          {b.payout_note && <div className="text-gray-500 italic">{b.payout_note}</div>}
+                        </div>
+                      )}
                       <p className="md:col-span-2 xl:col-span-3"><span className="font-medium text-gray-900">Message:</span> {b.message || "-"}</p>
                     </div>
 
@@ -1435,22 +1519,31 @@ export default function OwnerPage() {
         {/* ── TOOL SALES ── shown in bookings tab */}
         {activeTab === "bookings" && (
           <div className="mt-6 rounded-[28px] bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between flex-wrap gap-2">
+            <div id="tool-sales-section" className="flex items-center justify-between flex-wrap gap-2">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">🏷️ Tool Sales</h2>
                 <p className="mt-0.5 text-sm text-black/50">Tools sold outright — awaiting payout from AirTool admin.</p>
+                <p className="mt-1 text-xs text-blue-600 font-medium">
+                  ℹ️ A {saleCommissionPct}% platform fee is deducted from each sale — your payout is the remaining {100 - saleCommissionPct}%.
+                </p>
               </div>
               {sales.length > 0 && (
                 <div className="flex gap-3 text-center">
                   <div className="rounded-2xl border border-orange-100 bg-orange-50 px-4 py-2">
                     <div className="text-lg font-bold text-orange-600">
-                      NZ${sales.filter((s) => s.payout_status === "pending").reduce((sum, s) => sum + Number(s.sale_price) - Number(s.platform_commission || 0), 0).toFixed(2)}
+                      NZ${sales.filter((s) => s.payout_status === "pending").reduce((sum, s) => {
+                        const c = Number(s.platform_commission) > 0 ? Number(s.platform_commission) : Math.round(Number(s.sale_price) * saleCommissionPct) / 100;
+                        return sum + Number(s.sale_price) - c;
+                      }, 0).toFixed(2)}
                     </div>
                     <div className="text-xs text-gray-500">Pending payout (net)</div>
                   </div>
                   <div className="rounded-2xl border border-green-100 bg-green-50 px-4 py-2">
                     <div className="text-lg font-bold text-green-600">
-                      NZ${sales.filter((s) => s.payout_status === "paid").reduce((sum, s) => sum + Number(s.sale_price) - Number(s.platform_commission || 0), 0).toFixed(2)}
+                      NZ${sales.filter((s) => s.payout_status === "paid").reduce((sum, s) => {
+                        const c = Number(s.platform_commission) > 0 ? Number(s.platform_commission) : Math.round(Number(s.sale_price) * saleCommissionPct) / 100;
+                        return sum + Number(s.sale_price) - c;
+                      }, 0).toFixed(2)}
                     </div>
                     <div className="text-xs text-gray-500">Paid out (net)</div>
                   </div>
@@ -1460,7 +1553,12 @@ export default function OwnerPage() {
             <div className="mt-4 space-y-3">
               {sales.length === 0 ? (
                 <p className="text-sm text-black/40">No tool sales yet.</p>
-              ) : sales.map((s) => (
+              ) : sales.map((s) => {
+                const comm = Number(s.platform_commission) > 0
+                  ? Number(s.platform_commission)
+                  : Math.round(Number(s.sale_price) * saleCommissionPct) / 100;
+                const net = Number(s.sale_price) - comm;
+                return (
                 <div key={s.id} className={`rounded-2xl border p-4 ${s.payout_status === "paid" ? "border-green-100 bg-green-50" : "border-orange-100 bg-orange-50"}`}>
                   <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div className="space-y-0.5">
@@ -1474,21 +1572,36 @@ export default function OwnerPage() {
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-xs text-gray-400">Sale price: NZ${Number(s.sale_price).toFixed(2)}</div>
-                      {Number(s.platform_commission || 0) > 0 && (
-                        <div className="text-xs text-gray-400">− NZ${Number(s.platform_commission).toFixed(2)} platform fee</div>
-                      )}
+                      <div className="text-xs text-gray-400">Stripe received: NZ${Number(s.sale_price).toFixed(2)}</div>
+                      <div className="text-xs text-gray-400">− NZ${comm.toFixed(2)} platform fee ({saleCommissionPct}%)</div>
                       <div className="text-xl font-bold text-orange-600 mt-0.5">
-                        NZ${(Number(s.sale_price) - Number(s.platform_commission || 0)).toFixed(2)}
+                        NZ${net.toFixed(2)}
                       </div>
                       <div className="text-xs text-gray-500">your payout</div>
-                      <div className={`text-xs font-semibold mt-1 ${s.payout_status === "paid" ? "text-green-600" : "text-amber-600"}`}>
-                        {s.payout_status === "paid" ? "✅ Paid out to you" : "⏳ Payout pending from AirTool"}
-                      </div>
+                      {s.payout_status === "paid" ? (
+                        <div className="mt-1 space-y-0.5">
+                          <div className="text-xs font-semibold text-green-600">✅ Paid out to you</div>
+                          {s.payout_amount && (
+                            <div className="text-xs text-green-700">NZ${Number(s.payout_amount).toFixed(2)} transferred</div>
+                          )}
+                          {s.payout_bank_account && (
+                            <div className="text-xs text-gray-500">To: {s.payout_bank_account}</div>
+                          )}
+                          {s.payout_date && (
+                            <div className="text-xs text-gray-400">{new Date(s.payout_date).toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" })}</div>
+                          )}
+                          {s.payout_note && (
+                            <div className="text-xs text-gray-500 italic">{s.payout_note}</div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-xs font-semibold mt-1 text-amber-600">⏳ Payout pending from AirTool</div>
+                      )}
                     </div>
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           </div>
         )}

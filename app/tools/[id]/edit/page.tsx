@@ -39,6 +39,8 @@ export default function EditToolPage() {
   const [pricePerDay, setPricePerDay]               = useState("");
   const [deposit, setDeposit]                       = useState("");
   const [salePrice, setSalePrice]                   = useState("");
+  const [promoPrice, setPromoPrice]                 = useState("");
+  const [promoLabel, setPromoLabel]                 = useState("");
   const [brand, setBrand]                           = useState("");
   const [model, setModel]                           = useState("");
   const [conditionStars, setConditionStars]         = useState<number | null>(null);
@@ -73,7 +75,7 @@ export default function EditToolPage() {
       setUserId(user.id);
 
       const { data: tool } = await supabase.from("tools").select(
-        "name, category, listing_type, hub_id, price_per_day, deposit, sale_price, brand, model, condition, description, usage_notes, pickup_notes, included_accessories, image_url, image_url_2, image_url_3, video_url, owner_email, status, hubs(name)"
+        "name, category, listing_type, hub_id, price_per_day, deposit, sale_price, promo_price, promo_label, brand, model, condition, description, usage_notes, pickup_notes, included_accessories, image_url, image_url_2, image_url_3, video_url, owner_email, status, hubs(name)"
       ).eq("id", toolId).single();
 
       if (!tool) { setLoading(false); return; }
@@ -87,6 +89,8 @@ export default function EditToolPage() {
       setPricePerDay(tool.price_per_day != null ? String(tool.price_per_day) : "");
       setDeposit(tool.deposit != null ? String(tool.deposit) : "");
       setSalePrice(tool.sale_price != null ? String(tool.sale_price) : "");
+      setPromoPrice((tool as any).promo_price != null ? String((tool as any).promo_price) : "");
+      setPromoLabel((tool as any).promo_label || "");
       setForSale((tool as any).status === "for_sale");
       setBrand(tool.brand || "");
       setModel(tool.model || "");
@@ -157,6 +161,8 @@ export default function EditToolPage() {
       price_per_day: Number(pricePerDay),
       deposit: deposit ? Number(deposit) : null,
       sale_price: salePrice ? Number(salePrice) : null,
+      promo_price: (forSale && promoPrice) ? Number(promoPrice) : null,
+      promo_label: (forSale && promoLabel.trim()) ? promoLabel.trim() : null,
       status: forSale ? "for_sale" : "active",
       brand: brand.trim() || null,
       model: model.trim() || null,
@@ -422,9 +428,38 @@ export default function EditToolPage() {
                   className="w-full rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm outline-none focus:border-amber-400"
                 />
               </div>
+
+              {forSale && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-orange-700">
+                      Promo sale price ($) <span className="font-normal text-orange-500">(optional)</span>
+                    </label>
+                    <input
+                      type="number" min="0" step="0.01"
+                      value={promoPrice} onChange={(e) => setPromoPrice(e.target.value)}
+                      placeholder="e.g. 280"
+                      className="w-full rounded-2xl border border-orange-200 bg-white px-4 py-3 text-sm outline-none focus:border-orange-400"
+                    />
+                    <p className="mt-1 text-xs text-orange-600/70">Discounted sale price — shown with strikethrough of full price.</p>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-orange-700">
+                      Promo label <span className="font-normal text-orange-500">(optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={promoLabel} onChange={(e) => setPromoLabel(e.target.value)}
+                      placeholder="e.g. CLEARANCE, PROMO"
+                      className="w-full rounded-2xl border border-orange-200 bg-white px-4 py-3 text-sm outline-none focus:border-orange-400"
+                    />
+                  </div>
+                </div>
+              )}
+
               <p className="text-xs text-amber-700/80 leading-5">
                 {forSale
-                  ? "Buyers can make an offer via the booking system."
+                  ? "Buyers pay via Stripe checkout. Set a promo price for a limited-time discount."
                   : "Sets the lost-tool replacement cost and deposit ceiling. Tick the box above to list as for sale."}
               </p>
             </div>

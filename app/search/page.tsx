@@ -248,7 +248,7 @@ let query = supabase
             ) : null}
           </button>
 
-          {tool.description ? (
+          {tool.description && tool.status !== "for_sale" ? (
             <div className="mt-2 line-clamp-2 text-sm text-black/50">
               {tool.description}
             </div>

@@ -40,6 +40,11 @@ type Booking = {
   price_total: number | null;
   platform_fee: number | null;
   created_at: string | null;
+  payout_status?: string | null;
+  payout_amount?: number | null;
+  payout_bank_account?: string | null;
+  payout_date?: string | null;
+  payout_note?: string | null;
 };
 
 type Tool = {
@@ -145,8 +150,10 @@ export default function AdminPage() {
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [resolvingDisputeId, setResolvingDisputeId] = useState<number | null>(null);
   const [showResolvedDisputes, setShowResolvedDisputes] = useState(false);
-  const [toolSales, setToolSales] = useState<{ id: number; tool_name: string; sale_price: number; platform_commission: number; buyer_email: string; buyer_name: string; owner_email: string; paid_at: string; payout_status: string; payout_note: string | null }[]>([]);
+  const [toolSales, setToolSales] = useState<{ id: number; tool_name: string; sale_price: number; platform_commission: number; buyer_email: string; buyer_name: string; owner_email: string; paid_at: string; payout_status: string; payout_note: string | null; payout_amount: number | null; payout_bank_account: string | null; payout_date: string | null }[]>([]);
+  const [ownerBankDetails, setOwnerBankDetails] = useState<Record<string, { bank_account_name: string | null; bank_account_number: string | null; bank_name: string | null }>>({});
   const [payoutUpdating, setPayoutUpdating] = useState<number | null>(null);
+  const [bookingPayoutUpdating, setBookingPayoutUpdating] = useState<number | null>(null);
   const [saleCommissionPct, setSaleCommissionPct] = useState<number>(10);
   const [commissionEditing, setCommissionEditing] = useState(false);
   const [commissionInput, setCommissionInput] = useState("10");
@@ -225,7 +232,22 @@ export default function AdminPage() {
         setTodayProfilesCount(todayProfileCount || 0);
         setBookings((bookingsData as Booking[]) || []);
         if (disputesData) setDisputes(disputesData as Dispute[]);
-        if (salesData) setToolSales(salesData as any);
+        if (salesData) {
+          setToolSales(salesData as any);
+          // Fetch bank details for all unique owner emails
+          const ownerEmails = [...new Set((salesData as any[]).map((s) => s.owner_email).filter(Boolean))];
+          if (ownerEmails.length > 0) {
+            const { data: profiles } = await supabase
+              .from("profiles")
+              .select("email, bank_account_name, bank_account_number, bank_name")
+              .in("email", ownerEmails);
+            if (profiles) {
+              const map: Record<string, any> = {};
+              (profiles as any[]).forEach((p) => { map[p.email] = p; });
+              setOwnerBankDetails(map);
+            }
+          }
+        }
         if (commissionData?.value) {
           const pct = Number(commissionData.value);
           setSaleCommissionPct(pct);
@@ -290,15 +312,21 @@ const scrollToSection = (id: string) => {
     return bookings.filter((b) => b.created_at && new Date(b.created_at) >= start);
   }, [bookings]);
 
-  const todayTurnover = useMemo(
-    () => todayBookings.reduce((sum, b) => sum + Number(b.price_total || 0), 0),
-    [todayBookings]
-  );
+  const todayTurnover = useMemo(() => {
+    const start = getStartDateForRange("today")!;
+    const bookingTotal = todayBookings.reduce((sum, b) => sum + Number(b.price_total || 0), 0);
+    const saleTotal = toolSales.filter((s) => s.paid_at && new Date(s.paid_at) >= start).reduce((sum, s) => sum + Number(s.sale_price || 0), 0);
+    return bookingTotal + saleTotal;
+  }, [todayBookings, toolSales]);
 
-  const todayPlatformRevenue = useMemo(
-    () => todayBookings.reduce((sum, b) => sum + Number(b.platform_fee || 0), 0),
-    [todayBookings]
-  );
+  const todayPlatformRevenue = useMemo(() => {
+    const start = getStartDateForRange("today")!;
+    const bookingFees = todayBookings.reduce((sum, b) => sum + Number(b.platform_fee || 0), 0);
+    const saleFees = toolSales
+      .filter((s) => s.paid_at && new Date(s.paid_at) >= start)
+      .reduce((sum, s) => sum + (Number(s.platform_commission) > 0 ? Number(s.platform_commission) : Math.round(Number(s.sale_price) * saleCommissionPct) / 100), 0);
+    return bookingFees + saleFees;
+  }, [todayBookings, toolSales, saleCommissionPct]);
 
   const todayNewBookings = useMemo(
     () => todayBookings.filter((b) => b.status === "new" || b.status === "pending" || !b.status).length,
@@ -316,31 +344,35 @@ const scrollToSection = (id: string) => {
   );
 
   const totalTurnover = useMemo(
-    () => bookings.reduce((sum, b) => sum + Number(b.price_total || 0), 0),
-    [bookings]
+    () => bookings.reduce((sum, b) => sum + Number(b.price_total || 0), 0) +
+      toolSales.reduce((sum, s) => sum + Number(s.sale_price || 0), 0),
+    [bookings, toolSales]
   );
 
   const totalPlatformRevenue = useMemo(
-    () => bookings.reduce((sum, b) => sum + Number(b.platform_fee || 0), 0),
-    [bookings]
+    () => bookings.reduce((sum, b) => sum + Number(b.platform_fee || 0), 0) +
+      toolSales.reduce((sum, s) => sum + (Number(s.platform_commission) > 0 ? Number(s.platform_commission) : Math.round(Number(s.sale_price) * saleCommissionPct) / 100), 0),
+    [bookings, toolSales, saleCommissionPct]
   );
+
+  const filteredFinanceSales = useMemo(() => {
+    const start = getStartDateForRange(financeRange);
+    if (!start) return toolSales;
+    return toolSales.filter((s) => s.paid_at && new Date(s.paid_at) >= start);
+  }, [toolSales, financeRange]);
 
   const financeTurnover = useMemo(
     () =>
-      filteredFinanceBookings.reduce(
-        (sum, b) => sum + Number(b.price_total || 0),
-        0
-      ),
-    [filteredFinanceBookings]
+      filteredFinanceBookings.reduce((sum, b) => sum + Number(b.price_total || 0), 0) +
+      filteredFinanceSales.reduce((sum, s) => sum + Number(s.sale_price || 0), 0),
+    [filteredFinanceBookings, filteredFinanceSales]
   );
 
   const financePlatformRevenue = useMemo(
     () =>
-      filteredFinanceBookings.reduce(
-        (sum, b) => sum + Number(b.platform_fee || 0),
-        0
-      ),
-    [filteredFinanceBookings]
+      filteredFinanceBookings.reduce((sum, b) => sum + Number(b.platform_fee || 0), 0) +
+      filteredFinanceSales.reduce((sum, s) => sum + (Number(s.platform_commission) > 0 ? Number(s.platform_commission) : Math.round(Number(s.sale_price) * saleCommissionPct) / 100), 0),
+    [filteredFinanceBookings, filteredFinanceSales, saleCommissionPct]
   );
 
   const financeBookingCount = filteredFinanceBookings.length;
@@ -506,12 +538,12 @@ const p2pPendingBookings = useMemo(
     },
   ];
 
-  const tabConfig: { key: BookingTab; label: string; count: number }[] = [
+  const tabConfig: { key: BookingTab; label: string; count: number; pendingPayouts?: number }[] = [
     { key: "new", label: "New", count: newBookings.length },
     { key: "hub", label: "Hub", count: hubPendingBookings.length },
     { key: "p2p", label: "P2P", count: p2pPendingBookings.length },
     { key: "approved", label: "Approved", count: approvedBookings.length },
-    { key: "completed", label: "Completed", count: completedBookings.length },
+    { key: "completed", label: "Completed", count: completedBookings.length, pendingPayouts: completedBookings.filter(b => b.payout_status !== "paid").length },
   ];
 
   const renderBookingCard = (b: Booking) => {
@@ -605,19 +637,69 @@ const p2pPendingBookings = useMemo(
             </div>
           </div>
 
-          <div className="min-w-[180px] rounded-3xl bg-slate-50 p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-              Finance
-            </p>
+          <div className="min-w-[200px] rounded-3xl bg-slate-50 p-4 space-y-1">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Finance</p>
             <p className="mt-2 text-sm text-slate-500">Price total</p>
-            <p className="text-xl font-bold text-slate-900">
-              ${safeMoney(b.price_total)}
-            </p>
-            <p className="mt-3 text-sm text-slate-500">Platform fee</p>
-            <p className="text-lg font-bold text-slate-900">
-              ${safeMoney(b.platform_fee)}
-            </p>
-            <p className="mt-4 text-xs text-slate-400">
+            <p className="text-xl font-bold text-slate-900">${safeMoney(b.price_total)}</p>
+            <p className="mt-1 text-sm text-slate-500">Platform fee</p>
+            <p className="text-lg font-bold text-slate-900">${safeMoney(b.platform_fee)}</p>
+            {b.status === "completed" && (() => {
+              const net = (Number(b.price_total || 0) - Number(b.platform_fee || 0));
+              const bank = ownerBankDetails[b.owner_email || ""];
+              const defaultAccount = bank?.bank_account_number ? `${bank.bank_name || ""} ${bank.bank_account_number}`.trim() : "";
+              if (b.payout_status === "paid") {
+                return (
+                  <div className="mt-2 rounded-2xl border border-green-200 bg-green-50 px-3 py-2 space-y-0.5">
+                    <div className="text-xs font-semibold text-green-700">✅ Paid out to owner</div>
+                    {b.payout_amount && <div className="text-xs text-green-600">${Number(b.payout_amount).toFixed(2)} transferred</div>}
+                    {b.payout_bank_account && <div className="text-xs text-gray-500">To: {b.payout_bank_account}</div>}
+                    {b.payout_date && <div className="text-xs text-gray-400">{new Date(b.payout_date).toLocaleDateString("en-NZ", { dateStyle: "medium" })}</div>}
+                    {b.payout_note && <div className="text-xs text-gray-500 italic">{b.payout_note}</div>}
+                  </div>
+                );
+              }
+              return (
+                <div className="mt-2 space-y-1">
+                  <div className="text-sm font-semibold text-orange-600">= ${net.toFixed(2)} to owner</div>
+                  {bank ? (
+                    <div className="text-xs text-blue-600">
+                      {bank.bank_account_name} · {bank.bank_name} {bank.bank_account_number}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-red-400">No bank details on file</div>
+                  )}
+                  <button
+                    disabled={bookingPayoutUpdating === b.id}
+                    onClick={async () => {
+                      const accountInput = prompt(`Bank account paid to:\n(Owner: ${b.owner_email})`, defaultAccount);
+                      if (accountInput === null) return;
+                      const note = prompt(`Transfer note / reference (optional):\nAmount: $${net.toFixed(2)}`) ?? "";
+                      setBookingPayoutUpdating(b.id);
+                      const res = await fetch("/api/admin/booking-payout", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          bookingId:          b.id,
+                          payoutAmount:       net,
+                          payoutBankAccount:  accountInput.trim() || null,
+                          payoutNote:         note.trim() || null,
+                        }),
+                      });
+                      if (res.ok) {
+                        setBookings((prev) => prev.map((x) => x.id === b.id ? { ...x, payout_status: "paid", payout_amount: net, payout_bank_account: accountInput.trim() || null, payout_date: new Date().toISOString(), payout_note: note.trim() || null } : x));
+                      } else {
+                        alert("Failed to save payout. Please try again.");
+                      }
+                      setBookingPayoutUpdating(null);
+                    }}
+                    className="rounded-full bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
+                  >
+                    {bookingPayoutUpdating === b.id ? "Saving…" : `Pay $${net.toFixed(2)} to Owner`}
+                  </button>
+                </div>
+              );
+            })()}
+            <p className="pt-2 text-xs text-slate-400">
               {b.created_at ? new Date(b.created_at).toLocaleString() : ""}
             </p>
           </div>
@@ -1125,7 +1207,7 @@ const p2pPendingBookings = useMemo(
                       : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                   }`}
                 >
-                  {tab.label} ({tab.count})
+                  {tab.label} ({tab.count}){(tab as any).pendingPayouts > 0 && <span className="ml-1.5 rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] text-white">{(tab as any).pendingPayouts} unpaid</span>}
                 </button>
               ))}
             </div>
@@ -1575,31 +1657,36 @@ const p2pPendingBookings = useMemo(
             <p className="mt-6 text-sm text-black/40">No tool sales yet.</p>
           ) : (
             <>
-              {/* Summary totals */}
-              <div className="mt-4 grid grid-cols-4 gap-3 text-center">
-                <div className="rounded-2xl border border-gray-100 bg-gray-50 p-3">
-                  <div className="text-2xl font-bold text-gray-900">{toolSales.length}</div>
-                  <div className="text-xs text-gray-500">Total Sales</div>
-                </div>
-                <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3">
-                  <div className="text-2xl font-bold text-blue-600">
-                    NZ${toolSales.reduce((sum, s) => sum + Number(s.platform_commission || 0), 0).toFixed(2)}
+              {/* Summary totals — use stored commission if set, else calculate from current rate */}
+              {(() => {
+                const effComm = (s: typeof toolSales[0]) =>
+                  Number(s.platform_commission) > 0
+                    ? Number(s.platform_commission)
+                    : Math.round(Number(s.sale_price) * saleCommissionPct) / 100;
+                const totalRevenue  = toolSales.reduce((sum, s) => sum + effComm(s), 0);
+                const owedToOwners  = toolSales.filter((s) => s.payout_status === "pending").reduce((sum, s) => sum + Number(s.sale_price) - effComm(s), 0);
+                const paidOut       = toolSales.filter((s) => s.payout_status === "paid").reduce((sum, s) => sum + Number(s.sale_price) - effComm(s), 0);
+                return (
+                  <div className="mt-4 grid grid-cols-4 gap-3 text-center">
+                    <div className="rounded-2xl border border-gray-100 bg-gray-50 p-3">
+                      <div className="text-2xl font-bold text-gray-900">{toolSales.length}</div>
+                      <div className="text-xs text-gray-500">Total Sales</div>
+                    </div>
+                    <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3">
+                      <div className="text-2xl font-bold text-blue-600">NZ${totalRevenue.toFixed(2)}</div>
+                      <div className="text-xs text-gray-500">Platform Revenue ({saleCommissionPct}%)</div>
+                    </div>
+                    <div className="rounded-2xl border border-orange-100 bg-orange-50 p-3">
+                      <div className="text-2xl font-bold text-orange-600">NZ${owedToOwners.toFixed(2)}</div>
+                      <div className="text-xs text-gray-500">Owed to Owners</div>
+                    </div>
+                    <div className="rounded-2xl border border-green-100 bg-green-50 p-3">
+                      <div className="text-2xl font-bold text-green-600">NZ${paidOut.toFixed(2)}</div>
+                      <div className="text-xs text-gray-500">Paid Out</div>
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500">Platform Revenue</div>
-                </div>
-                <div className="rounded-2xl border border-orange-100 bg-orange-50 p-3">
-                  <div className="text-2xl font-bold text-orange-600">
-                    NZ${toolSales.filter((s) => s.payout_status === "pending").reduce((sum, s) => sum + Number(s.sale_price) - Number(s.platform_commission || 0), 0).toFixed(2)}
-                  </div>
-                  <div className="text-xs text-gray-500">Owed to Owners</div>
-                </div>
-                <div className="rounded-2xl border border-green-100 bg-green-50 p-3">
-                  <div className="text-2xl font-bold text-green-600">
-                    NZ${toolSales.filter((s) => s.payout_status === "paid").reduce((sum, s) => sum + Number(s.sale_price) - Number(s.platform_commission || 0), 0).toFixed(2)}
-                  </div>
-                  <div className="text-xs text-gray-500">Paid Out</div>
-                </div>
-              </div>
+                );
+              })()}
 
             <div className="mt-4 space-y-3">
               {toolSales.map((s) => (
@@ -1609,7 +1696,23 @@ const p2pPendingBookings = useMemo(
                       <div className="font-semibold text-gray-900">{s.tool_name}</div>
                       <div className="mt-1 text-xs text-gray-500 space-y-0.5">
                         <div>🛒 Buyer: <span className="font-medium text-gray-700">{s.buyer_name || "—"}</span>{s.buyer_email ? ` (${s.buyer_email})` : ""}</div>
-                        <div>👤 Pay owner: <span className="font-medium text-gray-700">{s.owner_email}</span></div>
+                        <div>👤 Owner: <span className="font-medium text-gray-700">{s.owner_email}</span></div>
+                        {(() => {
+                          const bank = ownerBankDetails[s.owner_email];
+                          if (!bank?.bank_account_number) return (
+                            <div className="mt-1 rounded-lg bg-red-50 border border-red-100 px-2 py-1 text-red-600">
+                              ⚠️ Owner has not set bank details yet
+                            </div>
+                          );
+                          return (
+                            <div className="mt-1 rounded-lg bg-blue-50 border border-blue-100 px-2 py-1.5 space-y-0.5">
+                              <div className="font-semibold text-blue-700">💳 Transfer to:</div>
+                              <div>Name: <span className="font-medium text-blue-800">{bank.bank_account_name || "—"}</span></div>
+                              <div>Bank: <span className="font-medium text-blue-800">{bank.bank_name || "—"}</span></div>
+                              <div>Account: <span className="font-mono font-bold text-blue-800">{bank.bank_account_number}</span></div>
+                            </div>
+                          );
+                        })()}
                       </div>
                       <div className="mt-1 text-xs text-gray-400">
                         {new Date(s.paid_at).toLocaleDateString("en-NZ", { dateStyle: "medium" })} · Ref: AT-SALE-{String(s.id).slice(0, 8).toUpperCase()}
@@ -1619,26 +1722,58 @@ const p2pPendingBookings = useMemo(
                       )}
                     </div>
                     <div className="flex flex-col items-end gap-1">
-                      <div className="text-xl font-bold text-gray-900">NZ${Number(s.sale_price).toFixed(2)}</div>
-                      <div className="text-xs text-gray-400">Stripe received</div>
-                      <div className="text-xs text-blue-600">− NZ${Number(s.platform_commission || 0).toFixed(2)} platform fee</div>
-                      <div className="text-base font-bold text-orange-600">= NZ${(Number(s.sale_price) - Number(s.platform_commission || 0)).toFixed(2)} to owner</div>
+                      {(() => {
+                        const comm = Number(s.platform_commission) > 0 ? Number(s.platform_commission) : Math.round(Number(s.sale_price) * saleCommissionPct) / 100;
+                        const net  = Number(s.sale_price) - comm;
+                        return (<>
+                          <div className="text-xl font-bold text-gray-900">NZ${Number(s.sale_price).toFixed(2)}</div>
+                          <div className="text-xs text-gray-400">Stripe received</div>
+                          <div className="text-xs text-blue-600">− NZ${comm.toFixed(2)} platform fee ({saleCommissionPct}%)</div>
+                          <div className="text-base font-bold text-orange-600">= NZ${net.toFixed(2)} to owner</div>
+                        </>);
+                      })()}
                       {s.payout_status === "paid" ? (
-                        <span className="mt-1 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">✅ Paid out</span>
+                        <div className="mt-1 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-xs space-y-0.5 text-right">
+                          <div className="font-semibold text-green-700">✅ Paid out</div>
+                          {s.payout_amount && <div className="text-green-600">NZ${Number(s.payout_amount).toFixed(2)} transferred</div>}
+                          {s.payout_bank_account && <div className="text-gray-500">To: {s.payout_bank_account}</div>}
+                          {s.payout_date && <div className="text-gray-400">{new Date(s.payout_date).toLocaleDateString("en-NZ", { dateStyle: "medium" })}</div>}
+                          {s.payout_note && <div className="text-gray-400 italic">{s.payout_note}</div>}
+                        </div>
                       ) : (
                         <button
                           disabled={payoutUpdating === s.id}
                           onClick={async () => {
+                            const effComm = Number(s.platform_commission) > 0 ? Number(s.platform_commission) : Math.round(Number(s.sale_price) * saleCommissionPct) / 100;
+                            const net = (Number(s.sale_price) - effComm).toFixed(2);
+                            const bank = ownerBankDetails[s.owner_email];
+                            const defaultAccount = bank?.bank_account_number
+                              ? `${bank.bank_name || ""} ${bank.bank_account_number}`.trim()
+                              : "";
+                            const accountInput = prompt(`Bank account paid to:\n(Owner: ${s.owner_email})`, defaultAccount);
+                            if (accountInput === null) return; // cancelled
+                            const note = prompt(`Transfer note / reference (optional):\nAmount: NZ$${net}`) ?? "";
                             setPayoutUpdating(s.id);
-                            const net = (Number(s.sale_price) - Number(s.platform_commission || 0)).toFixed(2);
-                            const note = prompt(`Transfer NZ$${net} to ${s.owner_email}\n(Sale: NZ$${Number(s.sale_price).toFixed(2)} − NZ$${Number(s.platform_commission || 0).toFixed(2)} platform fee)\n\nAdd a payout note (optional):`) ?? "";
-                            await supabase.from("tool_sales").update({ payout_status: "paid", payout_note: note || null }).eq("id", s.id);
-                            setToolSales((prev) => prev.map((x) => x.id === s.id ? { ...x, payout_status: "paid", payout_note: note || null } : x));
+                            const res = await fetch("/api/admin/payout", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                saleId:             s.id,
+                                payoutAmount:       Number(net),
+                                payoutBankAccount:  accountInput.trim() || null,
+                                payoutNote:         note.trim() || null,
+                              }),
+                            });
+                            if (res.ok) {
+                              setToolSales((prev) => prev.map((x) => x.id === s.id ? { ...x, payout_status: "paid", payout_amount: Number(net), payout_bank_account: accountInput.trim() || null, payout_date: new Date().toISOString(), payout_note: note.trim() || null } : x));
+                            } else {
+                              alert("Failed to save payout. Please try again.");
+                            }
                             setPayoutUpdating(null);
                           }}
                           className="mt-1 rounded-full bg-orange-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
                         >
-                          {payoutUpdating === s.id ? "Saving…" : `Pay NZ$${(Number(s.sale_price) - Number(s.platform_commission || 0)).toFixed(2)} to Owner`}
+                          {payoutUpdating === s.id ? "Saving…" : `Pay NZ$${(Number(s.sale_price) - (Number(s.platform_commission) > 0 ? Number(s.platform_commission) : Math.round(Number(s.sale_price) * saleCommissionPct) / 100)).toFixed(2)} to Owner`}
                         </button>
                       )}
                     </div>

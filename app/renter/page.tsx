@@ -42,6 +42,10 @@ type Booking = {
   owner_confirmed_at?: string | null;
   confirmed_at?: string | null;
   paid_at?: string | null;
+  payout_status?: string | null;
+  payout_amount?: number | null;
+  payout_bank_account?: string | null;
+  payout_date?: string | null;
 };
 
 type Tool = {
@@ -440,9 +444,11 @@ export default function RenterPage() {
   const displayXp = dbXp !== null ? dbXp : renterXp;
 
   const xpLevel =
-    displayXp >= 20 ? "Champion" :
-    displayXp >= 10 ? "Trusted"  :
-    displayXp >= 5  ? "Regular"  :
+    displayXp >= 200 ? "Legend"   :
+    displayXp >= 100 ? "Champion" :
+    displayXp >= 60  ? "Pro"      :
+    displayXp >= 30  ? "Trusted"  :
+    displayXp >= 10  ? "Regular"  :
     "Newcomer";
 
   // ── Booking sort: urgent / action-needed first, then most recent ─────────────
@@ -480,9 +486,11 @@ export default function RenterPage() {
   }, [bookings]);
 
   const xpBadgeColor =
-    displayXp >= 20 ? "bg-amber-500"  :
-    displayXp >= 10 ? "bg-indigo-600" :
-    displayXp >= 5  ? "bg-blue-500"   :
+    displayXp >= 200 ? "bg-yellow-500"  :
+    displayXp >= 100 ? "bg-amber-500"   :
+    displayXp >= 60  ? "bg-purple-600"  :
+    displayXp >= 30  ? "bg-indigo-600"  :
+    displayXp >= 10  ? "bg-blue-500"    :
     "bg-gray-400";
 
   const handleSubmitReview = async (booking: Booking) => {
@@ -801,10 +809,12 @@ export default function RenterPage() {
               <div className="hidden sm:block shrink-0 text-right">
                 <p className="text-xs text-gray-400">Next level</p>
                 <p className="text-sm font-bold text-indigo-600">
-                  {displayXp >= 20 ? "Max reached 🏆" :
-                   displayXp >= 10 ? `${20 - displayXp} pts to Champion` :
-                   displayXp >= 5  ? `${10 - displayXp} pts to Trusted`  :
-                   `${5 - displayXp} pts to Regular`}
+                  {displayXp >= 200 ? "Max reached 🏆" :
+                   displayXp >= 100 ? `${200 - displayXp} pts to Legend`   :
+                   displayXp >= 60  ? `${100 - displayXp} pts to Champion` :
+                   displayXp >= 30  ? `${60  - displayXp} pts to Pro`      :
+                   displayXp >= 10  ? `${30  - displayXp} pts to Trusted`  :
+                   `${10 - displayXp} pts to Regular`}
                 </p>
               </div>
             </div>
@@ -1135,7 +1145,7 @@ export default function RenterPage() {
                   <p><span className="font-medium text-gray-900">End date:</span> {b.end_date || "-"}</p>
                   <p><span className="font-medium text-gray-900">Phone:</span> {b.phone || "-"}</p>
                   <p><span className="font-medium text-gray-900">Address:</span> {b.address || "-"}</p>
-                  <p><span className="font-medium text-gray-900">Price total:</span> ${Number(b.price_total || 0).toFixed(2)}</p>
+                  <p><span className="font-medium text-gray-900">Price total:</span> ${Number(b.price_total || 0).toFixed(2)}{b.status === "completed" && (b.payout_status === "paid" ? <span className="ml-2 text-xs font-semibold text-green-600">✅ Owner paid out</span> : <span className="ml-2 text-xs font-semibold text-orange-500">⏳ Owner payout pending</span>)}</p>
                   <p className="md:col-span-2 xl:col-span-3">
                     <span className="font-medium text-gray-900">Message:</span> {b.message || "-"}
                   </p>
@@ -1607,15 +1617,13 @@ export default function RenterPage() {
           {purchases.length === 0 ? (
             <p className="mt-4 text-sm text-black/40">No tool purchases yet.</p>
           ) : (
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 space-y-4">
               {purchases.map((p) => (
                 <div key={p.id} className="rounded-2xl bg-orange-50 border border-orange-100 p-4">
                   <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div className="space-y-0.5">
                       <div className="font-semibold text-gray-900">{p.tool_name}</div>
-                      <div className="text-xs text-gray-500">
-                        Purchased outright · now yours to keep
-                      </div>
+                      <div className="text-xs text-gray-500">Purchased outright · now yours to keep</div>
                       <div className="text-xs text-gray-400">
                         {new Date(p.paid_at).toLocaleDateString("en-NZ", { dateStyle: "long" })} · Ref: AT-SALE-{String(p.id).slice(0, 8).toUpperCase()}
                       </div>

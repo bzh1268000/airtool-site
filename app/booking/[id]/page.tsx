@@ -310,17 +310,18 @@ export default function BookingPage({
         return;
       }
 
-      // Fire-and-forget admin alert email
+      // Fire-and-forget alert email to admin + tool owner
       fetch("/api/send-booking-alert", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          toolName:  tool!.name,
-          userName:  fullName.trim(),
+          toolName:   tool!.name,
+          userName:   fullName.trim(),
           userEmail,
-          userPhone: phone.trim(),
-          startDate: `${startDate} ${startTime}`,
-          endDate:   `${endDate} ${endTime}`,
+          userPhone:  phone.trim(),
+          startDate:  `${startDate} ${startTime}`,
+          endDate:    `${endDate} ${endTime}`,
+          ownerEmail: tool!.owner_email,
         }),
       }).catch(() => {});
 
