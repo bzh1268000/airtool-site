@@ -195,8 +195,8 @@ export default function ListToolPage() {
   if (!authReady) {
     return (
       <main className="relative min-h-screen flex items-center justify-center">
-        <div className="absolute inset-0 -z-10 bg-cover bg-center" style={{ backgroundImage: "url('/sky.jpg')" }} />
-        <div className="pointer-events-none absolute inset-0 -z-10 bg-white/50" />
+        <div className="absolute inset-0 z-0 bg-cover bg-center" style={{ backgroundImage: "url('/sky.jpg')" }} />
+        <div className="pointer-events-none absolute inset-0 z-10 bg-white/40" />
         <div className="text-sm text-black/40">Checking sign-in…</div>
       </main>
     );
@@ -206,10 +206,10 @@ export default function ListToolPage() {
   return (
     <main className="relative min-h-screen py-10 px-4">
       {/* Background — same as homepage */}
-      <div className="absolute inset-0 -z-10 bg-cover bg-center" style={{ backgroundImage: "url('/sky.jpg')" }} />
-      <div className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(214,234,252,0.55),rgba(244,247,251,0.35))]" />
-      <div className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(240,246,255,0.45),rgba(255,255,255,0.60))]" />
-      <div className="mx-auto max-w-2xl">
+      <div className="absolute inset-0 z-0 bg-cover bg-center" style={{ backgroundImage: "url('/sky.jpg')" }} />
+      <div className="pointer-events-none absolute inset-0 z-10 bg-[linear-gradient(180deg,rgba(214,234,252,0.42),rgba(244,247,251,0.20))]" />
+      <div className="pointer-events-none absolute inset-0 z-10 bg-[linear-gradient(180deg,rgba(240,246,255,0.35),rgba(255,255,255,0.45))]" />
+      <div className="relative z-20 mx-auto max-w-2xl">
 
         {/* Header */}
         <div className="mb-8">

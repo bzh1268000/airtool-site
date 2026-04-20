@@ -128,10 +128,10 @@ function RegisterContent() {
 
   return (
     <main className="relative flex min-h-screen items-center justify-center px-4 py-12 overflow-hidden">
-      <div className="absolute inset-0 -z-10 bg-cover bg-center" style={{ backgroundImage: "url('/sky.jpg')" }} />
-      <div className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(214,234,252,0.55),rgba(244,247,251,0.35))]" />
-      <div className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(240,246,255,0.45),rgba(255,255,255,0.60))]" />
-      <div className="w-full max-w-lg rounded-3xl border border-white/60 bg-white/75 p-8 shadow-xl backdrop-blur-md">
+      <div className="absolute inset-0 z-0 bg-cover bg-center" style={{ backgroundImage: "url('/sky.jpg')" }} />
+      <div className="pointer-events-none absolute inset-0 z-10 bg-[linear-gradient(180deg,rgba(214,234,252,0.42),rgba(244,247,251,0.20))]" />
+      <div className="pointer-events-none absolute inset-0 z-10 bg-[linear-gradient(180deg,rgba(240,246,255,0.35),rgba(255,255,255,0.45))]" />
+      <div className="relative z-20 w-full max-w-lg rounded-3xl border border-white/60 bg-white/75 p-8 shadow-xl backdrop-blur-md">
         <div className="mb-6 text-center">
           <div className="text-3xl font-bold text-[#2f641f]">AirTool.nz</div>
           <div className="mt-1 text-sm uppercase tracking-widest text-black/50">
