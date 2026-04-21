@@ -54,7 +54,9 @@
       "Bash(awk 'NR>=1500 && NR<=1540' /c/airtool-site/app/admin/page.tsx)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/admin)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/renter)",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/owner)"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/owner)",
+      "Bash(find /c/airtool-site -type f -name \"*.sql\" -exec cat {} \\\\;)",
+      "Bash(find \"C:\\\\\\\\airtool-site\\\\\\\\app\" -name \"*new*\" -o -name \"*create*\")"
     ]
   }
 }

@@ -172,7 +172,7 @@ export default function AdminPage() {
       if (showLoading) setLoading(true);
       setErrorText("");
 
-      const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+      const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
       if (isMounted) {
         setRole(profile?.role ?? "admin");
         setUserEmail(user.email || "");

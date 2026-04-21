@@ -144,6 +144,13 @@ export default function OwnerToolsPage() {
       return;
     }
 
+    await supabase
+      .from("profiles")
+      .update({ role: "owner" })
+      .eq("email", userEmail)
+      .neq("role", "admin")
+      .neq("role", "hub");
+
     setName("");
     setDescription("");
     setCategory("");

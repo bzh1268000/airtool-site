@@ -132,7 +132,7 @@ export default function HubPage() {
         .from("profiles")
         .select("role, hub_id")
         .eq("id", user.id)
-        .single();
+        .maybeSingle();
 
       if (profileError) {
         if (isMounted) {
@@ -250,7 +250,7 @@ export default function HubPage() {
       .from("profiles")
       .select("full_name, phone, address, suburb, city, id_type, id_number, prefer_delivery, role, successful_transactions")
       .eq("id", authUser.id)
-      .single();
+      .maybeSingle();
 
     const meta = authUser.user_metadata || {};
     const authName = meta.full_name || meta.name || authUser.email?.split("@")[0] || "";

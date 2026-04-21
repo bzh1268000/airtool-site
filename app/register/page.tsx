@@ -18,7 +18,7 @@ function RegisterContent() {
   const [city, setCity] = useState("");
   const [idType, setIdType] = useState("");
   const [idNumber, setIdNumber] = useState("");
-  const [preferDelivery, setPreferDelivery] = useState<"pickup" | "delivery">("pickup");
+  const [preferDelivery, setPreferDelivery] = useState<"pickup" | "hub" | "delivery">("pickup");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
@@ -206,12 +206,24 @@ function RegisterContent() {
             Preferred Method
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <button
               type="button"
               onClick={() => setPreferDelivery("pickup")}
               className={`rounded-xl border py-3 text-sm font-medium transition ${
                 preferDelivery === "pickup"
+                  ? "border-[#8bbb46] bg-[#f0f8e8] text-[#2f641f]"
+                  : "border-black/15 text-black/60"
+              }`}
+            >
+              🤝 Pickup
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPreferDelivery("hub")}
+              className={`rounded-xl border py-3 text-sm font-medium transition ${
+                preferDelivery === "hub"
                   ? "border-[#8bbb46] bg-[#f0f8e8] text-[#2f641f]"
                   : "border-black/15 text-black/60"
               }`}

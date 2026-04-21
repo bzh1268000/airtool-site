@@ -347,7 +347,7 @@ export default function RenterPage() {
       .from("profiles")
       .select("full_name, phone, address, suburb, city, id_type, id_number, prefer_delivery, role, successful_transactions")
       .eq("id", authUser.id)
-      .single();
+      .maybeSingle();
 
     const meta = authUser.user_metadata || {};
     const authName = meta.full_name || meta.name || authUser.email?.split("@")[0] || "";
@@ -995,12 +995,23 @@ export default function RenterPage() {
                 </div>
 
                 <div className="text-xs font-semibold uppercase tracking-widest text-black/40 pt-2">Preferred Method</div>
-                <div className="grid grid-cols-2 gap-3 max-w-sm">
+                <div className="grid grid-cols-3 gap-3 max-w-lg">
                   <button
                     type="button"
                     onClick={() => setPreferDelivery("pickup")}
                     className={`rounded-xl border py-3 text-sm font-medium transition ${
                       preferDelivery === "pickup"
+                        ? "border-[#8bbb46] bg-[#f0f8e8] text-[#2f641f]"
+                        : "border-black/15 text-black/60"
+                    }`}
+                  >
+                    🤝 Pickup
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreferDelivery("hub")}
+                    className={`rounded-xl border py-3 text-sm font-medium transition ${
+                      preferDelivery === "hub"
                         ? "border-[#8bbb46] bg-[#f0f8e8] text-[#2f641f]"
                         : "border-black/15 text-black/60"
                     }`}

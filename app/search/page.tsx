@@ -152,51 +152,75 @@ function SearchContent() {
         // ── Nearby: geocode + sort by distance ─────────────────────────────
         if (hubName) {
           setNearbyLoading(true);
+
+          // Debug: log what hub we resolved
+          console.log("Nearby debug — selectedHubId:", selectedHubId, "hubName:", hubName);
+
           const hubCoords = await geocode(hubName);
+          console.log("Nearby debug — hubCoords:", hubCoords);
+
+          // Diagnostic: fetch all tools with NO filters to verify tools exist
+          const { data: debugTools, error: debugError } = await supabase
+            .from("tools").select("id, name, city, suburb, status, owner_email").limit(20);
+          console.log("All tools (no filter):", debugTools, "error:", debugError);
 
           if (hubCoords) {
             const matchedIds = new Set(tools.map((t) => t.id));
 
-            const { data: allTools } = await supabase
+            // Fetch ALL tools — no status/location filter; filter in JS
+            const { data: allTools, error: nearbyError } = await supabase
               .from("tools").select(TOOL_SELECT)
-              .neq("status", "sold")
               .order("created_at", { ascending: false })
-              .limit(60);
+              .limit(100);
+            console.log("Nearby raw fetch — count:", allTools?.length, "error:", nearbyError);
 
             if (allTools) {
-              // Debug: log city/suburb values for all tools
-              console.log("Tools city/suburb:", (allTools as ToolRow[]).map(t => ({
-                id: t.id, name: t.name, city: t.city, suburb: t.suburb, owner_email: t.owner_email,
+              // Debug: log raw city/suburb values
+              console.log("Tools city/suburb (raw):", (allTools as ToolRow[]).map(t => ({
+                id: t.id, name: t.name, city: t.city, suburb: t.suburb, status: t.status, owner_email: t.owner_email,
               })));
 
-              // Fallback: for tools missing city/suburb, try owner profile location
-              const noLocationTools = (allTools as ToolRow[]).filter(t => !t.city && !t.suburb && t.owner_email);
-              const uniqueEmails = [...new Set(noLocationTools.map(t => t.owner_email!))];
+              // Step 1: get candidates (exclude matched + sold)
+              const candidates = (allTools as ToolRow[]).filter(
+                (t) => !matchedIds.has(t.id) && t.status !== "sold"
+              );
+              console.log("Nearby candidates (before profile merge):", candidates.length);
+
+              // Step 2: fetch profiles for candidates missing city/suburb
+              const ownerEmails = [...new Set(
+                candidates.filter(t => (!t.city || !t.suburb) && t.owner_email).map(t => t.owner_email!)
+              )];
               let profileLocationMap: Record<string, { suburb: string | null; city: string | null }> = {};
-              if (uniqueEmails.length > 0) {
-                const { data: profiles } = await supabase
-                  .from("profiles").select("email, suburb, city").in("email", uniqueEmails);
-                if (profiles) {
-                  (profiles as { email: string; suburb: string | null; city: string | null }[])
+              if (ownerEmails.length > 0) {
+                const { data: ownerProfiles } = await supabase
+                  .from("profiles").select("email, suburb, city").in("email", ownerEmails);
+                if (ownerProfiles) {
+                  (ownerProfiles as { email: string; suburb: string | null; city: string | null }[])
                     .forEach(p => { profileLocationMap[p.email] = { suburb: p.suburb, city: p.city }; });
                 }
               }
-              const enrichedTools = (allTools as ToolRow[]).map(t => {
-                if (!t.city && !t.suburb && t.owner_email && profileLocationMap[t.owner_email]) {
-                  return { ...t, city: profileLocationMap[t.owner_email].city, suburb: profileLocationMap[t.owner_email].suburb };
-                }
-                return t;
+
+              // Step 3: merge profile city/suburb into tools that are missing them
+              const enrichedCandidates = candidates.map(t => {
+                const prof = t.owner_email ? profileLocationMap[t.owner_email] : undefined;
+                return {
+                  ...t,
+                  city: t.city || prof?.city || null,
+                  suburb: t.suburb || prof?.suburb || null,
+                };
               });
 
-              const candidates = enrichedTools.filter((t) => !matchedIds.has(t.id));
+              console.log("Tools after profile merge:", enrichedCandidates.map(t => ({
+                name: t.name, city: t.city, suburb: t.suburb,
+              })));
 
-              // Batch-geocode unique cities
+              // Batch-geocode unique places
               const uniquePlaces = [...new Set(
-                candidates.map((t) => t.city || t.suburb || "").filter(Boolean)
+                enrichedCandidates.map((t) => t.city || t.suburb || "").filter(Boolean)
               )];
               await Promise.all(uniquePlaces.map((p) => geocode(p)));
 
-              const withDist = candidates
+              const withDist = enrichedCandidates
                 .map((tool) => {
                   const place = (tool.city || tool.suburb || "").toLowerCase().trim();
                   if (!place) return null; // skip tools with no location
@@ -209,6 +233,7 @@ function SearchContent() {
                 .sort((a, b) => a.distanceKm - b.distanceKm)
                 .slice(0, 8);
 
+              console.log("Nearby withDist (after geocode+200km filter):", withDist.map(x => ({ id: x.tool.id, name: x.tool.name, distanceKm: x.distanceKm })));
               setNearbyWithDistance(withDist);
             }
           }
