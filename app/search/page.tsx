@@ -68,14 +68,19 @@ function SearchContent() {
     if (key in geocodeCache.current) return geocodeCache.current[key];
     try {
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(place)}&format=json&limit=1`,
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(place)}&format=json&limit=1&countrycodes=nz`,
         { headers: { "Accept-Language": "en" } }
       );
       const json = await res.json();
       if (json[0]) {
-        const result = { lat: parseFloat(json[0].lat), lon: parseFloat(json[0].lon) };
-        geocodeCache.current[key] = result;
-        return result;
+        const lat = parseFloat(json[0].lat);
+        const lon = parseFloat(json[0].lon);
+        // Validate within NZ bounds
+        if (lat >= -47.5 && lat <= -34.0 && lon >= 166.0 && lon <= 178.5) {
+          const result = { lat, lon };
+          geocodeCache.current[key] = result;
+          return result;
+        }
       }
     } catch {}
     geocodeCache.current[key] = null;
@@ -170,13 +175,13 @@ function SearchContent() {
               const withDist = candidates
                 .map((tool) => {
                   const place = (tool.city || tool.suburb || "").toLowerCase().trim();
-                  const coords = place ? geocodeCache.current[place] : null;
-                  const distanceKm = coords
-                    ? haversine(hubCoords.lat, hubCoords.lon, coords.lat, coords.lon)
-                    : Infinity;
+                  if (!place) return null; // skip tools with no location
+                  const coords = geocodeCache.current[place];
+                  if (!coords) return null; // skip if geocode failed / out of NZ bounds
+                  const distanceKm = haversine(hubCoords.lat, hubCoords.lon, coords.lat, coords.lon);
                   return { tool, distanceKm };
                 })
-                .filter((x) => x.distanceKm !== Infinity)
+                .filter((x): x is { tool: ToolRow; distanceKm: number } => x !== null && x.distanceKm <= 200)
                 .sort((a, b) => a.distanceKm - b.distanceKm)
                 .slice(0, 8);
 
