@@ -164,7 +164,31 @@ function SearchContent() {
               .limit(60);
 
             if (allTools) {
-              const candidates = (allTools as ToolRow[]).filter((t) => !matchedIds.has(t.id));
+              // Debug: log city/suburb values for all tools
+              console.log("Tools city/suburb:", (allTools as ToolRow[]).map(t => ({
+                id: t.id, name: t.name, city: t.city, suburb: t.suburb, owner_email: t.owner_email,
+              })));
+
+              // Fallback: for tools missing city/suburb, try owner profile location
+              const noLocationTools = (allTools as ToolRow[]).filter(t => !t.city && !t.suburb && t.owner_email);
+              const uniqueEmails = [...new Set(noLocationTools.map(t => t.owner_email!))];
+              let profileLocationMap: Record<string, { suburb: string | null; city: string | null }> = {};
+              if (uniqueEmails.length > 0) {
+                const { data: profiles } = await supabase
+                  .from("profiles").select("email, suburb, city").in("email", uniqueEmails);
+                if (profiles) {
+                  (profiles as { email: string; suburb: string | null; city: string | null }[])
+                    .forEach(p => { profileLocationMap[p.email] = { suburb: p.suburb, city: p.city }; });
+                }
+              }
+              const enrichedTools = (allTools as ToolRow[]).map(t => {
+                if (!t.city && !t.suburb && t.owner_email && profileLocationMap[t.owner_email]) {
+                  return { ...t, city: profileLocationMap[t.owner_email].city, suburb: profileLocationMap[t.owner_email].suburb };
+                }
+                return t;
+              });
+
+              const candidates = enrichedTools.filter((t) => !matchedIds.has(t.id));
 
               // Batch-geocode unique cities
               const uniquePlaces = [...new Set(
@@ -374,40 +398,48 @@ function SearchContent() {
         </div>
       </section>
 
-      {/* ── Search results ───────────────────────────────────────────────────── */}
-      <section className="py-12">
-        <div className="mx-auto max-w-7xl px-4 md:px-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-semibold">
-              {selectedHubName ? `Results in ${selectedHubName}` : "All tools"}
-              {!loading && <span className="ml-2 text-base font-normal text-black/40">({matchedTools.length})</span>}
-            </h2>
-            <button onClick={() => router.push("/")} className="text-sm font-medium text-[#2f641f]">
-              Back home
-            </button>
-          </div>
+      {/* ── Search results — skip entirely when hub selected but 0 exact matches ── */}
+      {(!selectedHubName || matchedTools.length > 0 || loading) && (
+        <section className="py-12">
+          <div className="mx-auto max-w-7xl px-4 md:px-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-semibold">
+                {selectedHubName ? `Results in ${selectedHubName}` : "All tools"}
+                {!loading && <span className="ml-2 text-base font-normal text-black/40">({matchedTools.length})</span>}
+              </h2>
+              <button onClick={() => router.push("/")} className="text-sm font-medium text-[#2f641f]">Back home</button>
+            </div>
 
-          {loading ? (
-            <div className="mt-8 text-sm text-black/60">Loading tools...</div>
-          ) : matchedTools.length === 0 ? (
-            <div className="mt-8 rounded-2xl bg-white p-6 shadow-sm">
-              <div className="text-lg font-semibold">No tools found</div>
-              <div className="mt-2 text-sm text-black/60">Try another keyword, category, or area.</div>
-            </div>
-          ) : (
-            <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-              {matchedTools.map((tool) => <ToolCard key={tool.id} tool={tool} />)}
-            </div>
-          )}
-        </div>
-      </section>
+            {loading ? (
+              <div className="mt-8 text-sm text-black/60">Loading tools...</div>
+            ) : (
+              <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+                {matchedTools.map((tool) => <ToolCard key={tool.id} tool={tool} />)}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* ── Nearby tools (distance-sorted) ──────────────────────────────────── */}
-      {(nearbyLoading || nearbyWithDistance.length > 0) && (
-        <section className="pb-16">
+      {selectedHubName && (nearbyLoading || nearbyWithDistance.length > 0) && (
+        <section className={nearbyWithDistance.length > 0 || nearbyLoading ? "pb-16" : ""}>
           <div className="mx-auto max-w-7xl px-4 md:px-6">
-            <h2 className="text-2xl font-semibold">Nearby tools</h2>
-            <p className="mt-1 text-sm text-black/50">Tools from surrounding areas, sorted by distance.</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-semibold">
+                  {matchedTools.length === 0 ? `Tools near ${selectedHubName}` : "Nearby tools"}
+                </h2>
+                <p className="mt-1 text-sm text-black/50">
+                  {matchedTools.length === 0
+                    ? `No exact listings in ${selectedHubName} — showing closest tools by distance.`
+                    : "Tools from surrounding areas, sorted by distance."}
+                </p>
+              </div>
+              {matchedTools.length === 0 && (
+                <button onClick={() => router.push("/")} className="text-sm font-medium text-[#2f641f]">Back home</button>
+              )}
+            </div>
 
             {nearbyLoading ? (
               <div className="mt-8 text-sm text-black/40">Finding nearby tools…</div>
