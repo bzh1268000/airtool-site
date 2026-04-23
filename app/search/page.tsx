@@ -125,7 +125,26 @@ function SearchContent() {
       const { data, error } = await query.order("created_at", { ascending: false });
 
       if (!error && data) {
-        const tools = data as ToolRow[];
+        const rawTools = data as ToolRow[];
+
+        // Enrich tools missing city/suburb from owner profile
+        const missingEmails = [...new Set(
+          rawTools.filter(t => (!t.city || !t.suburb) && t.owner_email).map(t => t.owner_email!)
+        )];
+        let profileMap: Record<string, { suburb: string | null; city: string | null }> = {};
+        if (missingEmails.length > 0) {
+          const { data: profs } = await supabase
+            .from("profiles").select("email, suburb, city").in("email", missingEmails);
+          if (profs) {
+            (profs as { email: string; suburb: string | null; city: string | null }[])
+              .forEach(p => { profileMap[p.email] = { suburb: p.suburb, city: p.city }; });
+          }
+        }
+        const tools = rawTools.map(t => {
+          const prof = t.owner_email ? profileMap[t.owner_email] : undefined;
+          return { ...t, city: t.city || prof?.city || null, suburb: t.suburb || prof?.suburb || null };
+        });
+
         setMatchedTools(tools);
 
         // Review stats
@@ -153,11 +172,15 @@ function SearchContent() {
         if (hubName) {
           setNearbyLoading(true);
 
-          // Debug: log what hub we resolved
-          console.log("Nearby debug — selectedHubId:", selectedHubId, "hubName:", hubName);
-
-          const hubCoords = await geocode(hubName);
-          console.log("Nearby debug — hubCoords:", hubCoords);
+          // Try full hub name first; fall back to last word (city) if it fails
+          let hubCoords = await geocode(hubName);
+          if (!hubCoords) {
+            const lastWord = hubName.trim().split(" ").pop() || "";
+            if (lastWord && lastWord.toLowerCase() !== hubName.toLowerCase()) {
+              hubCoords = await geocode(lastWord);
+            }
+          }
+          console.log("Nearby debug — hubName:", hubName, "hubCoords:", hubCoords);
 
           // Diagnostic: fetch all tools with NO filters to verify tools exist
           const { data: debugTools, error: debugError } = await supabase
@@ -171,7 +194,7 @@ function SearchContent() {
             const { data: allTools, error: nearbyError } = await supabase
               .from("tools").select(TOOL_SELECT)
               .order("created_at", { ascending: false })
-              .limit(100);
+              .limit(200);
             console.log("Nearby raw fetch — count:", allTools?.length, "error:", nearbyError);
 
             if (allTools) {
@@ -230,8 +253,7 @@ function SearchContent() {
                   return { tool, distanceKm };
                 })
                 .filter((x): x is { tool: ToolRow; distanceKm: number } => x !== null && x.distanceKm <= 200)
-                .sort((a, b) => a.distanceKm - b.distanceKm)
-                .slice(0, 8);
+                .sort((a, b) => a.distanceKm - b.distanceKm);
 
               console.log("Nearby withDist (after geocode+200km filter):", withDist.map(x => ({ id: x.tool.id, name: x.tool.name, distanceKm: x.distanceKm })));
               setNearbyWithDistance(withDist);
@@ -269,7 +291,7 @@ function SearchContent() {
     const ownerName = tool.owner_email
       ? tool.owner_email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
       : null;
-    const locationLabel = tool.city || tool.suburb || (tool.hub_id ? selectedHubName : null) || "NZ";
+    const pickupLabel = tool.suburb || tool.city || "NZ";
 
     return (
       <div className="overflow-hidden border border-black/5 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-md">
@@ -285,7 +307,7 @@ function SearchContent() {
           <div className="text-lg font-semibold">{tool.name}</div>
 
           <div className="mt-1 flex items-center gap-2 text-sm text-black/60">
-            <span>{locationLabel} pickup</span>
+            <span>{pickupLabel} pickup</span>
             {distanceKm !== undefined && (
               <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
                 📍 {distanceKm < 1 ? "&lt;1" : Math.round(distanceKm)} km away

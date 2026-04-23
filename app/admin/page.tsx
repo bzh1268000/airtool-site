@@ -161,6 +161,8 @@ export default function AdminPage() {
   const [adminNotes, setAdminNotes] = useState("");
   const [resolution, setResolution] = useState<"release_to_owner" | "partial_refund" | "full_refund">("release_to_owner");
   const [disputeResolving, setDisputeResolving] = useState(false);
+  const [jobs, setJobs] = useState<{ id: number; created_at: string; user_email: string | null; category: string | null; raw_input: string | null; ai_summary: string | null; location_city: string | null; status: string | null; estimated_cost_min: number | null; estimated_cost_max: number | null; clarifications: any }[]>([]);
+  const [expandedJobId, setExpandedJobId] = useState<number | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -253,6 +255,13 @@ export default function AdminPage() {
           setSaleCommissionPct(pct);
           setCommissionInput(String(pct));
         }
+
+        const { data: jobsData } = await supabase
+          .from("jobs")
+          .select("id, created_at, user_email, category, raw_input, ai_summary, location_city, status, estimated_cost_min, estimated_cost_max, clarifications")
+          .order("created_at", { ascending: false });
+        if (jobsData && isMounted) setJobs(jobsData as any);
+
         setLoading(false);
       }
     };
@@ -829,6 +838,18 @@ const p2pPendingBookings = useMemo(
             </div>
             <p className="mt-4 text-3xl font-bold text-slate-900">{totalBookings}</p>
             <p className="mt-1 text-xs text-slate-400">View list →</p>
+          </button>
+
+          <button
+            onClick={() => scrollToSection("jobs")}
+            className="rounded-[28px] border border-green-100 bg-white/90 p-5 shadow-sm text-left hover:bg-green-50 transition"
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Fix Jobs</p>
+              <Wrench className="h-4 w-4 text-[#8bbb46]" />
+            </div>
+            <p className="mt-4 text-3xl font-bold text-slate-900">{jobs.length}</p>
+            <p className="mt-1 text-xs text-slate-400">View all →</p>
           </button>
 
           <div className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-sm">
@@ -1786,6 +1807,92 @@ const p2pPendingBookings = useMemo(
         </section>
       </div>
 
+        {/* ── Jobs section ─────────────────────────────────────────────── */}
+        <section id="jobs" className="scroll-mt-24 rounded-[30px] border border-green-100 bg-white/90 p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Fix &amp; Repair</p>
+              <h2 className="mt-1 text-2xl font-bold text-slate-900">Jobs</h2>
+            </div>
+            <span className="rounded-full bg-[#f0f8e8] px-3 py-1 text-sm font-semibold text-[#2f641f]">{jobs.length} total</span>
+          </div>
+
+          {jobs.length === 0 ? (
+            <p className="mt-6 text-sm text-black/40">No jobs yet.</p>
+          ) : (
+            <div className="mt-6 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-black/5 text-left text-xs uppercase tracking-widest text-black/40">
+                    <th className="pb-3 pr-4">Date</th>
+                    <th className="pb-3 pr-4">User</th>
+                    <th className="pb-3 pr-4">Category</th>
+                    <th className="pb-3 pr-4">Summary</th>
+                    <th className="pb-3 pr-4">Location</th>
+                    <th className="pb-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jobs.map((job) => {
+                    const isExpanded = expandedJobId === job.id;
+                    const statusColors: Record<string, string> = {
+                      new: "bg-yellow-100 text-yellow-800",
+                      quoted: "bg-blue-100 text-blue-800",
+                      diy: "bg-green-100 text-green-800",
+                      assisted: "bg-indigo-100 text-indigo-800",
+                      professional: "bg-purple-100 text-purple-800",
+                    };
+                    const statusClass = statusColors[job.status || "new"] || "bg-gray-100 text-gray-700";
+                    return (
+                      <>
+                        <tr
+                          key={job.id}
+                          onClick={() => setExpandedJobId(isExpanded ? null : job.id)}
+                          className="cursor-pointer border-b border-black/5 hover:bg-slate-50 transition"
+                        >
+                          <td className="py-3 pr-4 text-black/50 whitespace-nowrap">
+                            {new Date(job.created_at).toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}
+                          </td>
+                          <td className="py-3 pr-4 text-black/70 max-w-[140px] truncate">{job.user_email || "—"}</td>
+                          <td className="py-3 pr-4 font-medium capitalize">{job.category || "—"}</td>
+                          <td className="py-3 pr-4 text-black/60 max-w-[200px] truncate">{job.ai_summary || job.raw_input || "—"}</td>
+                          <td className="py-3 pr-4 text-black/50">{job.location_city || "—"}</td>
+                          <td className="py-3">
+                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass}`}>
+                              {job.status || "new"}
+                            </span>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr key={`${job.id}-exp`} className="bg-slate-50">
+                            <td colSpan={6} className="px-4 pb-4 pt-2">
+                              <div className="space-y-2 text-sm">
+                                <div><span className="font-semibold text-black/60">Raw input: </span><span className="text-black/80">{job.raw_input}</span></div>
+                                {job.ai_summary && <div><span className="font-semibold text-black/60">AI summary: </span><span className="text-black/80">{job.ai_summary}</span></div>}
+                                {job.clarifications && (
+                                  <div>
+                                    <span className="font-semibold text-black/60">Clarifications: </span>
+                                    <pre className="mt-1 rounded-lg bg-white p-3 text-xs text-black/60 overflow-x-auto">
+                                      {JSON.stringify(job.clarifications, null, 2)}
+                                    </pre>
+                                  </div>
+                                )}
+                                {(job.estimated_cost_min || job.estimated_cost_max) && (
+                                  <div><span className="font-semibold text-black/60">DIY estimate: </span><span className="text-[#2f641f] font-semibold">${job.estimated_cost_min} – ${job.estimated_cost_max}</span></div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
   <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
   <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/90 p-2 shadow-lg backdrop-blur-md">
     <button
@@ -1823,6 +1930,14 @@ const p2pPendingBookings = useMemo(
     >
       <ShieldAlert className="h-4 w-4" />
       <span>Risk</span>
+    </button>
+
+    <button
+      onClick={() => scrollToSection("jobs")}
+      className="flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+    >
+      <Wrench className="h-4 w-4 text-[#8bbb46]" />
+      <span>Jobs</span>
     </button>
   </div>
 </div>
