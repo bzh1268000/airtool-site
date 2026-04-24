@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { validateFullName, validatePhone, validateAddress } from "@/lib/validation";
+import { useCart } from "@/app/context/CartContext";
 
 type Tool = {
   id: number;
@@ -155,6 +156,9 @@ export default function BookingPage({
   const [errors, setErrors]           = useState<Record<string, string>>({});
   const [submitting, setSubmitting]   = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [cartModal, setCartModal]     = useState<{ bookingId: number; toolName: string; dates: string } | null>(null);
+  const [dateHint, setDateHint]       = useState(false);
+  const { addToCart, cartCount }      = useCart();
 
   // ── derived pricing (hourly: daily rate ÷ 8) ─────────────────────────────────
   const today       = new Date().toISOString().split("T")[0];
@@ -193,7 +197,7 @@ export default function BookingPage({
           .in("status", BLOCKING_STATUSES),
       ]);
 
-     if (toolData) setTool(toolData as unknown as Tool);
+      if (toolData) setTool(toolData as unknown as Tool);
       if (existingBookings) setBookedPeriods(existingBookings as BookedPeriod[]);
       if (profile) {
         setFullName(profile.full_name ?? "");
@@ -202,6 +206,16 @@ export default function BookingPage({
         setSuburb(profile.suburb ?? "");
         setCity(profile.city ?? "");
       }
+
+      // Pre-fill dates from last booking if available
+      try {
+        const saved = localStorage.getItem("airtool_last_booking_dates");
+        if (saved) {
+          const { start_date, end_date } = JSON.parse(saved);
+          if (start_date) { setStartDate(start_date); setDateHint(true); }
+          if (end_date)   setEndDate(end_date);
+        }
+      } catch {}
 
       setPageLoading(false);
     };
@@ -325,7 +339,18 @@ export default function BookingPage({
         }),
       }).catch(() => {});
 
-      router.replace(`/my-booking/${booking.id}`);
+      // Save dates for next booking pre-fill
+      try {
+        localStorage.setItem("airtool_last_booking_dates", JSON.stringify({ start_date: startDate, end_date: endDate }));
+      } catch {}
+
+      // Add to cart and show modal
+      await addToCart(booking.id);
+      setCartModal({
+        bookingId: booking.id,
+        toolName:  tool!.name ?? "Tool",
+        dates:     `${startDate} ${startTime} → ${endDate} ${endTime}`,
+      });
     } catch {
       setSubmitError("Something went wrong. Please try again.");
       setSubmitting(false);
@@ -349,6 +374,38 @@ export default function BookingPage({
           <a href="/search" className="mt-4 inline-block text-sm text-[#2f641f] underline">
             ← Back to search
           </a>
+        </div>
+      </main>
+    );
+  }
+
+  // ── Cart success modal ────────────────────────────────────────────────────────
+  if (cartModal) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f7f8f5] px-4 py-20">
+        <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl text-center">
+          <div className="text-5xl mb-3">✅</div>
+          <h2 className="text-xl font-bold text-[#1b1b1b]">Booking added to your cart!</h2>
+          <div className="mt-3 rounded-xl bg-[#f0f8e8] px-4 py-3 text-sm text-left">
+            <div className="font-semibold text-[#2f641f]">{cartModal.toolName}</div>
+            <div className="mt-0.5 text-xs text-black/50">{cartModal.dates}</div>
+          </div>
+          <p className="mt-5 text-sm font-semibold text-black/70">Need to rent another tool?</p>
+          <p className="mt-1 text-xs text-black/40">You can pay for all your bookings together at checkout.</p>
+          <div className="mt-5 space-y-3">
+            <button
+              onClick={() => { setCartModal(null); router.push("/search"); }}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-black/15 py-3 text-sm font-semibold text-black/70 hover:bg-black/5 transition"
+            >
+              🔍 Find another tool
+            </button>
+            <button
+              onClick={() => { setCartModal(null); router.push("/cart"); }}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#8bbb46] py-3 text-sm font-semibold text-white hover:bg-[#7aaa39] transition"
+            >
+              🛒 Go to checkout ({cartCount} {cartCount === 1 ? "item" : "items"})
+            </button>
+          </div>
         </div>
       </main>
     );
@@ -474,6 +531,11 @@ export default function BookingPage({
                   {errors.endTime && <p className="mt-1 text-xs text-red-500">{errors.endTime}</p>}
                 </div>
               </div>
+              {dateHint && (
+                <p className="mt-2 text-xs text-[#2f641f]">
+                  📅 Dates carried over from your last booking — edit if needed
+                </p>
+              )}
 
               {/* Live feedback */}
               {(() => {

@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import Navbar from "./components/navbar";
+import { CartProvider } from "./context/CartContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -54,8 +55,10 @@ export default function RootLayout({
           className="fixed inset-0 -z-10 opacity-20 bg-cover bg-center"
           style={{ backgroundImage: "url('/sky2.jpg')" }}
         />
-        <Navbar />
-        {children}
+        <CartProvider>
+          <Navbar />
+          {children}
+        </CartProvider>
 
         <Script
           id="google-translate-init"

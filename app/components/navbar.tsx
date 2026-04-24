@@ -3,15 +3,17 @@
 import Link from "next/link"; // still used for nav links
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { User, UserRound, Menu, X, LayoutDashboard } from "lucide-react";
+import { User, UserRound, Menu, X, LayoutDashboard, ShoppingCart } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import LanguageSwitcher from "./language-switcher";
+import { useCart } from "@/app/context/CartContext";
 
 export default function Navbar() {
   const router = useRouter();
   const [user, setUser]     = useState<any>(null);
   const [role, setRole]     = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const { cartCount } = useCart();
 
   useEffect(() => {
     // getSession() reads from cookies immediately — no network round-trip, no flash.
@@ -90,6 +92,22 @@ export default function Navbar() {
         <div className="flex items-center gap-2 md:gap-3">
 
           <LanguageSwitcher />
+
+          {/* Cart icon — only when logged in */}
+          {user && (
+            <button
+              onClick={() => router.push("/cart")}
+              className="relative flex h-10 w-10 md:h-11 md:w-11 items-center justify-center rounded-full border border-black/15 bg-white text-[#23313f] transition hover:bg-black/5"
+              aria-label="Shopping cart"
+            >
+              <ShoppingCart className="h-5 w-5" />
+              {cartCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#8bbb46] text-[10px] font-bold text-white">
+                  {cartCount}
+                </span>
+              )}
+            </button>
+          )}
 
           {/* People icon — signs out if logged in, goes to login if not */}
           <div className="relative group">

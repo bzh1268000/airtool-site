@@ -1,0 +1,150 @@
+"use client";
+
+import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { supabase } from "@/lib/supabase/client";
+
+export type CartItem = {
+  cart_id: number;
+  booking_id: number;
+  tool_name: string;
+  image_url: string | null;
+  price_per_day: number | null;
+  start_date: string | null;
+  end_date: string | null;
+  preferred_dates: string | null;
+  price_total: number | null;
+  owner_email: string | null;
+  address: string | null;
+  city: string | null;
+  suburb: string | null;
+};
+
+type CartContextType = {
+  cartItems: CartItem[];
+  cartCount: number;
+  addToCart: (booking_id: number) => Promise<void>;
+  removeFromCart: (cart_id: number) => Promise<void>;
+  clearCart: () => Promise<void>;
+  loadCart: () => Promise<void>;
+};
+
+const CartContext = createContext<CartContextType>({
+  cartItems: [],
+  cartCount: 0,
+  addToCart: async () => {},
+  removeFromCart: async () => {},
+  clearCart: async () => {},
+  loadCart: async () => {},
+});
+
+export function CartProvider({ children }: { children: React.ReactNode }) {
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+
+  const loadCart = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) { setCartItems([]); return; }
+
+    const { data, error } = await supabase
+      .from("cart_items")
+      .select(`
+        id,
+        booking_id,
+        bookings (
+          start_date,
+          end_date,
+          preferred_dates,
+          price_total,
+          status,
+          owner_email,
+          address,
+          tool_id,
+          tools (
+            name,
+            image_url,
+            price_per_day,
+            city,
+            suburb
+          )
+        )
+      `)
+      .eq("user_id", session.user.id)
+      .order("id", { ascending: true });
+
+    if (error) { console.error("loadCart error:", error.message); return; }
+
+    const items: CartItem[] = (data ?? []).map((row: any) => ({
+      cart_id:         row.id,
+      booking_id:      row.booking_id,
+      tool_name:       row.bookings?.tools?.name ?? "Unknown tool",
+      image_url:       row.bookings?.tools?.image_url ?? null,
+      price_per_day:   row.bookings?.tools?.price_per_day ?? null,
+      start_date:      row.bookings?.start_date ?? null,
+      end_date:        row.bookings?.end_date ?? null,
+      preferred_dates: row.bookings?.preferred_dates ?? null,
+      price_total:     row.bookings?.price_total ?? null,
+      owner_email:     row.bookings?.owner_email ?? null,
+      address:         row.bookings?.address ?? null,
+      city:            row.bookings?.tools?.city ?? null,
+      suburb:          row.bookings?.tools?.suburb ?? null,
+    }));
+
+    setCartItems(items);
+  }, []);
+
+  const addToCart = useCallback(async (booking_id: number) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return;
+
+    const { error } = await supabase
+      .from("cart_items")
+      .insert({ user_id: session.user.id, booking_id });
+
+    if (error) { console.error("addToCart error:", error.message); return; }
+    await loadCart();
+  }, [loadCart]);
+
+  const removeFromCart = useCallback(async (cart_id: number) => {
+    const { error } = await supabase
+      .from("cart_items")
+      .delete()
+      .eq("id", cart_id);
+
+    if (error) { console.error("removeFromCart error:", error.message); return; }
+    setCartItems((prev) => prev.filter((i) => i.cart_id !== cart_id));
+  }, []);
+
+  const clearCart = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return;
+
+    await supabase.from("cart_items").delete().eq("user_id", session.user.id);
+    setCartItems([]);
+  }, []);
+
+  // Load on mount and on auth change
+  useEffect(() => {
+    loadCart();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) loadCart();
+      else setCartItems([]);
+    });
+    return () => subscription.unsubscribe();
+  }, [loadCart]);
+
+  return (
+    <CartContext.Provider value={{
+      cartItems,
+      cartCount: cartItems.length,
+      addToCart,
+      removeFromCart,
+      clearCart,
+      loadCart,
+    }}>
+      {children}
+    </CartContext.Provider>
+  );
+}
+
+export function useCart() {
+  return useContext(CartContext);
+}

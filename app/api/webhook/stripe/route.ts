@@ -35,11 +35,52 @@ export async function POST(req: NextRequest) {
   // ── checkout.session.completed ────────────────────────────────────────────────
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
-    const bookingId = session.metadata?.booking_id;
-    const saleToolId = session.metadata?.sale_tool_id;
+    const bookingId    = session.metadata?.booking_id;
+    const bookingIds   = session.metadata?.booking_ids;   // cart multi-booking
+    const saleToolId   = session.metadata?.sale_tool_id;
+    const checkoutType = session.metadata?.checkout_type;
 
-    if (bookingId) {
-      // Rental payment
+    if (checkoutType === "cart" && bookingIds) {
+      // ── Cart multi-booking payment ────────────────────────────────────────
+      let ids: number[] = [];
+      try { ids = JSON.parse(bookingIds); } catch {}
+
+      if (ids.length > 0) {
+        const now = new Date().toISOString();
+
+        const { error: updateErr } = await adminSupabase
+          .from("bookings")
+          .update({ stripe_session_id: session.id, paid_at: now, status: "in_use" })
+          .in("id", ids);
+
+        if (updateErr) {
+          console.error("[stripe-webhook] Cart bookings update failed:", updateErr.message);
+        } else {
+          console.log("[stripe-webhook] Cart bookings confirmed:", ids);
+        }
+
+        // Clear cart items for these bookings
+        const { error: cartErr } = await adminSupabase
+          .from("cart_items")
+          .delete()
+          .in("booking_id", ids);
+
+        if (cartErr) {
+          console.error("[stripe-webhook] Cart items delete failed:", cartErr.message);
+        }
+
+        // Award XP for each booking
+        for (const bid of ids) {
+          fetch(`${process.env.NEXT_PUBLIC_SITE_URL || ""}/api/xp/award`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ booking_id: bid, new_status: "confirmed" }),
+          }).catch((e) => console.error("[stripe-webhook] XP award failed for booking", bid, e));
+        }
+      }
+
+    } else if (bookingId) {
+      // ── Single rental payment ─────────────────────────────────────────────
       const { error } = await adminSupabase
         .from("bookings")
         .update({
