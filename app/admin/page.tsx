@@ -743,9 +743,18 @@ const p2pPendingBookings = useMemo(
         })
       }
 
+      // Update local disputes state
       setDisputes((prev) => prev.map((d) =>
-        d.id === disputeId ? { ...d, status: "resolved", resolution, admin_notes: adminNotes.trim() || null } : d
+        d.id === disputeId
+          ? { ...d, status: "resolved", resolution, resolved_at: new Date().toISOString(), admin_notes: adminNotes.trim() || null }
+          : d
       ));
+
+      // Refresh bookings list so the status badge updates immediately
+      setBookings((prev) => prev.map((b) =>
+        b.id === bookingId ? { ...b, status: bookingStatus } : b
+      ));
+
       setResolvingDisputeId(null);
       setAdminNotes("");
     } finally {

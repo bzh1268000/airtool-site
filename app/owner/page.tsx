@@ -1473,6 +1473,13 @@ export default function OwnerPage() {
                         </span>
                       )}
 
+                      {/* Dispute resolved — admin closed the dispute */}
+                      {b.status === "refunded" && (
+                        <span className="inline-flex items-center rounded-2xl border border-green-300 bg-green-50 px-4 py-2 text-sm font-semibold text-green-800">
+                          ✅ Dispute resolved — refund issued
+                        </span>
+                      )}
+
                       {/* Decline — only while owner can still reject (pre-confirmation) */}
                       {["pending", "waiting_owner", "waiting_renter", "waiting_both"].includes(b.status ?? "") && (
                         <button onClick={() => updateBookingStatus(b.id, "declined")}
