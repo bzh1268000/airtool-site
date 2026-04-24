@@ -16,6 +16,18 @@ export async function POST(req: NextRequest) {
     const { booking_ids, user_email } = await req.json();
     console.log("[checkout/cart] received booking_ids:", booking_ids, "user_email:", user_email);
 
+    // ── Env + connectivity diagnostics ────────────────────────────────────────
+    console.log("[checkout/cart] SUPABASE_SERVICE_ROLE_KEY exists:", !!process.env.SUPABASE_SERVICE_ROLE_KEY);
+    console.log("[checkout/cart] SUPABASE_URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
+
+    // Hardcoded test query to verify service-role access is working
+    const { data: testBookings, error: testErr } = await adminSupabase
+      .from("bookings")
+      .select("id, price_total, tool_id, user_email, start_date, end_date")
+      .in("id", [42, 43]);
+    console.log("[checkout/cart] hardcoded test query bookings:", testBookings, "error:", testErr);
+    // ─────────────────────────────────────────────────────────────────────────
+
     if (!booking_ids?.length) {
       return NextResponse.json({ error: "No booking IDs provided" }, { status: 400 });
     }
