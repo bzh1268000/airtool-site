@@ -1372,13 +1372,16 @@ export default function RenterPage() {
                       />
                     );
                   })()}
-                  <button
-                    onClick={() => cancelBooking(b.id)}
-                    disabled={b.status === "completed" || b.status === "cancelled" || b.status === "confirmed"}
-                    className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
+                  {/* Cancel — hide once paid or owner has confirmed */}
+                  {!b.paid_at && !b.owner_confirmed && (
+                    <button
+                      onClick={() => cancelBooking(b.id)}
+                      disabled={b.status === "completed" || b.status === "cancelled"}
+                      className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  )}
 
                   {/* Raise dispute — available while tool is in use or during return check */}
                   {(b.status === "in_use" || b.status === "return_check") && !disputesMap[b.id] && (
