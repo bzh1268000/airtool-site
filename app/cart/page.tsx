@@ -12,10 +12,28 @@ export default function CartPage() {
   const [checkingOut, setCheckingOut] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    (async () => {
+      console.log("[cart debug] page mounted");
+
+      // Primary: getSession
+      let { data: { session } } = await supabase.auth.getSession();
+      console.log("[cart debug] session:", session?.user?.email ?? "none");
+
+      // Fallback: getUser (works even if cookie-based session isn't hydrated yet)
       if (!session?.user) {
-        router.replace("/login?redirect=/cart");
-        return;
+        const { data: { user } } = await supabase.auth.getUser();
+        console.log("[cart debug] getUser fallback:", user?.email ?? "none");
+        if (!user) {
+          router.replace("/login?redirect=/cart");
+          return;
+        }
+        // Re-fetch session after getUser succeeds
+        ({ data: { session } } = await supabase.auth.getSession());
+        if (!session?.user) {
+          // Still no full session — redirect
+          router.replace("/login?redirect=/cart");
+          return;
+        }
       }
 
       console.log("[cart] session user id:", session.user.id);
@@ -64,7 +82,7 @@ export default function CartPage() {
       await loadCart();
       console.log("[cart] cartItems after loadCart:", cartItems);
       setAuthChecked(true);
-    });
+    })();
   }, [router, loadCart]);
 
   if (!authChecked) {

@@ -42,6 +42,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const loadCart = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
+    console.log("[cartContext] loading cart for user:", session?.user?.id ?? "no session");
     if (!session?.user) { setCartItems([]); return; }
 
     // Step 1 — cart items + booking data
