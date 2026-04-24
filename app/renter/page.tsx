@@ -1347,12 +1347,31 @@ export default function RenterPage() {
                     </span>
                   )}
 
-                  <BookingChat
-                    bookingId={b.id}
-                    myEmail={userEmail}
-                    otherEmail={b.owner_email || ""}
-                    label="💬 Message Owner"
-                  />
+                  {/* Hide chat if: review exists, OR dispute resolved, OR completed 7+ days ago,
+                      OR confirmed 14+ days unpaid (stuck zero-price booking) */}
+                  {(() => {
+                    const hasReview       = !!reviewsMap[b.id];
+                    const disputeResolved = disputesMap[b.id]?.status === "resolved";
+                    const isCompleted     = b.status === "completed" || b.status === "review";
+                    const daysSinceEnd    = b.end_date
+                      ? (Date.now() - new Date(b.end_date).getTime()) / (1000 * 60 * 60 * 24)
+                      : 0;
+                    const refDate         = b.confirmed_at || b.end_date;
+                    const daysSinceRef    = refDate
+                      ? (Date.now() - new Date(refDate).getTime()) / (1000 * 60 * 60 * 24)
+                      : 0;
+                    const stuckConfirmed  = b.status === "confirmed" && !b.paid_at && daysSinceRef >= 14;
+                    const isStale = hasReview || disputeResolved || (isCompleted && daysSinceEnd >= 7) || stuckConfirmed;
+                    if (isStale) return null;
+                    return (
+                      <BookingChat
+                        bookingId={b.id}
+                        myEmail={userEmail}
+                        otherEmail={b.owner_email || ""}
+                        label="💬 Message Owner"
+                      />
+                    );
+                  })()}
                   <button
                     onClick={() => cancelBooking(b.id)}
                     disabled={b.status === "completed" || b.status === "cancelled" || b.status === "confirmed"}
