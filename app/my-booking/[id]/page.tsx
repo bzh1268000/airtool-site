@@ -237,7 +237,17 @@ function MyBookingContent({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ booking_id: booking.id, new_status: 'confirmed' }),
-    })
+    });
+    // Auto-add to cart on confirmation
+    // Requires: ALTER TABLE cart_items ADD CONSTRAINT cart_items_user_booking_unique UNIQUE (user_id, booking_id);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user?.id) {
+      const { error: cartErr } = await supabase.from("cart_items").upsert(
+        { user_id: session.user.id, booking_id: booking.id },
+        { onConflict: "user_id,booking_id" }
+      );
+      if (cartErr) console.error("cart upsert after confirm failed:", cartErr.message);
+    }
     setBooking((prev) => prev ? { ...prev, status: "confirmed" } : prev);
     setConfirming(false);
     return true;

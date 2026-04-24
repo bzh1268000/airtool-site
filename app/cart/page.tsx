@@ -12,13 +12,47 @@ export default function CartPage() {
   const [checkingOut, setCheckingOut] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session?.user) {
         router.replace("/login?redirect=/cart");
-      } else {
-        loadCart();
-        setAuthChecked(true);
+        return;
       }
+
+      // Auto-sync: add any confirmed/approved bookings not yet in cart
+      // Requires UNIQUE constraint: ALTER TABLE cart_items ADD CONSTRAINT
+      // cart_items_user_booking_unique UNIQUE (user_id, booking_id);
+      try {
+        const userId = session.user.id;
+
+        const [{ data: confirmedBookings }, { data: existingCartItems }] = await Promise.all([
+          supabase
+            .from("bookings")
+            .select("id")
+            .eq("user_email", session.user.email)
+            .in("status", ["confirmed", "approved"])
+            .is("paid_at", null),
+          supabase
+            .from("cart_items")
+            .select("booking_id")
+            .eq("user_id", userId),
+        ]);
+
+        const alreadyInCart = new Set((existingCartItems ?? []).map((c: any) => c.booking_id));
+        const toAdd = (confirmedBookings ?? []).filter((b: any) => !alreadyInCart.has(b.id));
+
+        if (toAdd.length > 0) {
+          console.log("Cart sync — auto-adding confirmed bookings:", toAdd.map((b: any) => b.id));
+          await supabase.from("cart_items").upsert(
+            toAdd.map((b: any) => ({ user_id: userId, booking_id: b.id })),
+            { onConflict: "user_id,booking_id" }
+          );
+        }
+      } catch (err) {
+        console.error("Cart sync error:", err);
+      }
+
+      await loadCart();
+      setAuthChecked(true);
     });
   }, [router, loadCart]);
 
