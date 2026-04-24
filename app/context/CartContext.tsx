@@ -44,49 +44,53 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) { setCartItems([]); return; }
 
-    const { data, error } = await supabase
+    // Step 1 — cart items + booking data
+    const { data: cartData, error } = await supabase
       .from("cart_items")
-      .select(`
-        id,
-        booking_id,
-        bookings (
-          start_date,
-          end_date,
-          preferred_dates,
-          price_total,
-          status,
-          owner_email,
-          address,
-          tool_id,
-          tools (
-            name,
-            image_url,
-            price_per_day,
-            city,
-            suburb
-          )
-        )
-      `)
+      .select("id, booking_id, bookings(id, start_date, end_date, preferred_dates, price_total, status, owner_email, address, tool_id)")
       .eq("user_id", session.user.id)
       .order("id", { ascending: true });
 
     if (error) { console.error("loadCart error:", error.message); return; }
 
-    const items: CartItem[] = (data ?? []).map((row: any) => ({
+    // Step 2 — fetch tools separately
+    const toolIds = (cartData ?? [])
+      .map((row: any) => row.bookings?.tool_id)
+      .filter(Boolean) as number[];
+
+    let toolsMap: Record<number, { id: number; name: string; image_url: string | null; price_per_day: number | null; city: string | null; suburb: string | null }> = {};
+
+    if (toolIds.length > 0) {
+      const { data: toolsData, error: toolsErr } = await supabase
+        .from("tools")
+        .select("id, name, image_url, price_per_day, city, suburb")
+        .in("id", toolIds);
+      if (toolsErr) console.error("loadCart tools error:", toolsErr.message);
+      if (toolsData) {
+        toolsMap = Object.fromEntries((toolsData as any[]).map((t) => [t.id, t]));
+      }
+    }
+
+    // Step 3 — merge
+    const items: CartItem[] = (cartData ?? []).map((row: any) => {
+      const booking = row.bookings ?? {};
+      const tool    = toolsMap[booking.tool_id] ?? {};
+      return {
       cart_id:         row.id,
       booking_id:      row.booking_id,
-      tool_name:       row.bookings?.tools?.name ?? "Unknown tool",
-      image_url:       row.bookings?.tools?.image_url ?? null,
-      price_per_day:   row.bookings?.tools?.price_per_day ?? null,
-      start_date:      row.bookings?.start_date ?? null,
-      end_date:        row.bookings?.end_date ?? null,
-      preferred_dates: row.bookings?.preferred_dates ?? null,
-      price_total:     row.bookings?.price_total ?? null,
-      owner_email:     row.bookings?.owner_email ?? null,
-      address:         row.bookings?.address ?? null,
-      city:            row.bookings?.tools?.city ?? null,
-      suburb:          row.bookings?.tools?.suburb ?? null,
-    }));
+      tool_name:       tool.name ?? "Unknown tool",
+      image_url:       tool.image_url ?? null,
+      price_per_day:   tool.price_per_day ?? null,
+      start_date:      booking.start_date ?? null,
+      end_date:        booking.end_date ?? null,
+      preferred_dates: booking.preferred_dates ?? null,
+      price_total:     booking.price_total ?? null,
+      owner_email:     booking.owner_email ?? null,
+      address:         booking.address ?? null,
+      city:            tool.city ?? null,
+      suburb:          tool.suburb ?? null,
+    };
+    });
 
     setCartItems(items);
   }, []);
