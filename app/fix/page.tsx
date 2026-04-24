@@ -34,6 +34,7 @@ function FixContent() {
   const [matchedTools, setMatchedTools] = useState<MatchedTool[]>([]);
   const [jobId, setJobId] = useState<number | null>(null);
   const [quoteSaved, setQuoteSaved] = useState(false);
+  const [analyseError, setAnalyseError] = useState<string | null>(null);
 
   // On mount: check for returning OAuth user with saved session data
   useEffect(() => {
@@ -130,14 +131,16 @@ function FixContent() {
       console.log("analyse API response:", data);
       if (data.error) {
         console.error("analyse API returned error:", data.error);
+        setAnalyseError(data.error);
       }
-      setQuote(data.quote);
+      setQuote(data.quote ?? null);
       setMatchedTools(data.matched_tools || []);
       setJobId(data.job_id || null);
       sessionStorage.removeItem(SESSION_KEY);
       setStage("results");
     } catch (err) {
       console.error("runAnalyse failed:", err);
+      setAnalyseError(String(err));
       setStage("results");
     }
   };
@@ -280,12 +283,16 @@ function FixContent() {
 
   // ── Stage: results ─────────────────────────────────────────────────────────
   if (!quote) {
-    console.error("Results stage reached but quote is null — stage:", stage, "jobId:", jobId);
+    console.error("Results stage reached but quote is null — stage:", stage, "error:", analyseError);
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#f7f7f2] px-4">
-        <div className="text-center">
-          <p className="text-black/50">Something went wrong. <a href="/categories" className="text-[#2f641f] underline">Try again</a></p>
-          <p className="mt-2 text-xs text-black/30">Check the browser console for details.</p>
+        <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow">
+          <div className="text-3xl">⚠️</div>
+          <p className="mt-3 font-semibold text-black/70">Something went wrong</p>
+          {analyseError && (
+            <p className="mt-2 rounded-lg bg-red-50 px-4 py-2 text-left font-mono text-xs text-red-600 break-all">{analyseError}</p>
+          )}
+          <a href="/categories" className="mt-4 inline-block text-sm font-semibold text-[#2f641f] underline">Try again</a>
         </div>
       </div>
     );

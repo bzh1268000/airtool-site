@@ -17,8 +17,11 @@ const adminSupabase = createClient(
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
 export async function POST(req: NextRequest) {
+  console.log("analyse route — ANTHROPIC_API_KEY exists:", !!process.env.ANTHROPIC_API_KEY);
+  console.log("analyse route — SUPABASE_SERVICE_ROLE_KEY exists:", !!process.env.SUPABASE_SERVICE_ROLE_KEY);
   try {
     const { category, raw_input, clarifications, user_id, user_email, location_city } = await req.json();
+    console.log("analyse route — received:", { category, raw_input: raw_input?.substring(0, 80), user_id, user_email });
 
     // Step 1 — find relevant tools in DB
     const { data: matchedTools } = await adminSupabase
@@ -104,7 +107,7 @@ export async function POST(req: NextRequest) {
       matched_tools: matchedTools || [],
     });
   } catch (err) {
-    console.error("analyse — unhandled error:", err instanceof Error ? err.message : err);
-    return NextResponse.json({ error: "Internal server error", detail: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    console.error("analyse route error:", err);
+    return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }
