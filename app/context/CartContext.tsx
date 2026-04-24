@@ -41,9 +41,23 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
 
   const loadCart = useCallback(async () => {
+    // ── Session check ──────────────────────────────────────────────────────────
     const { data: { session } } = await supabase.auth.getSession();
-    console.log("[cartContext] loading cart for user:", session?.user?.id ?? "no session");
-    if (!session?.user) { setCartItems([]); return; }
+    console.log("[cartContext] session for cart load:", session?.user?.id ?? "no session");
+    if (!session?.user?.id) { setCartItems([]); return; }
+
+    // ── Raw test query (confirms RLS isn't blocking entirely) ─────────────────
+    const { data: testData, error: testError } = await supabase
+      .from("cart_items")
+      .select("*");
+    console.log("[cartContext] raw cart_items test:", testData, testError);
+
+    // ── Targeted query with explicit user_id filter ───────────────────────────
+    const { data: userRows, error: userErr } = await supabase
+      .from("cart_items")
+      .select("id, booking_id")
+      .eq("user_id", session.user.id);
+    console.log("[cartContext] cart_items with user filter:", userRows, userErr);
 
     // Step 1 — cart items + booking data
     const { data: cartData, error } = await supabase
@@ -52,6 +66,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       .eq("user_id", session.user.id)
       .order("id", { ascending: true });
 
+    console.log("[cartContext] loading cart for user:", session.user.id);
     if (error) { console.error("loadCart error:", error.message); return; }
 
     // Step 2 — fetch tools separately
