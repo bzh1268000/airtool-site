@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
 
     // Step 2 — AI quote
     const message = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5",
       max_tokens: 800,
       system: `You are an expert NZ tradesperson and home improvement advisor. Generate a structured quote with three options. Use realistic NZ 2025 pricing: tradespeople $80-150/hr callout, handymen $50-90/hr, materials at NZ retail prices. Respond in valid JSON only — no markdown:
 {

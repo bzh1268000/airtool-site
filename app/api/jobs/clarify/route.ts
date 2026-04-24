@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     }
 
     const message = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5",
       max_tokens: 500,
       system: `You are a helpful NZ home improvement assistant. The user has described a home job or problem. Quickly confirm what the problem is and ask maximum 2 clarifying questions to help determine the right solution. Always respond in valid JSON only with exactly this structure — no markdown, no explanation, just JSON:
 {

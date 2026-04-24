@@ -9,7 +9,7 @@ type JobCategory = {
   name: string;
   slug: string;
   icon: string;
-  example_jobs: string[];
+  examples: string[];
   sort_order: number;
 };
 
@@ -19,21 +19,21 @@ export default function CategoriesPage() {
   const [searchText, setSearchText] = useState("");
 
   const FALLBACK_CATEGORIES: JobCategory[] = [
-    { id: "1", name: "Plumbing",        slug: "plumbing",        icon: "🔧", sort_order: 1, example_jobs: ["Leaking tap", "Blocked drain", "Toilet running"] },
-    { id: "2", name: "Electrical",      slug: "electrical",      icon: "⚡", sort_order: 2, example_jobs: ["Light not working", "Powerpoint fault", "Install ceiling fan"] },
-    { id: "3", name: "Garden & Lawn",   slug: "garden",          icon: "🌿", sort_order: 3, example_jobs: ["Mow lawns", "Prune hedges", "Weed garden beds"] },
-    { id: "4", name: "Painting",        slug: "painting",        icon: "🎨", sort_order: 4, example_jobs: ["Interior walls", "Exterior weatherboard", "Touch-up trim"] },
-    { id: "5", name: "Carpentry",       slug: "carpentry",       icon: "🪚", sort_order: 5, example_jobs: ["Repair deck", "Fix door frame", "Build shelves"] },
-    { id: "6", name: "Tiling",          slug: "tiling",          icon: "🏠", sort_order: 6, example_jobs: ["Cracked tile", "Bathroom retile", "Kitchen splashback"] },
-    { id: "7", name: "Cleaning",        slug: "cleaning",        icon: "🧹", sort_order: 7, example_jobs: ["House clean", "End of tenancy", "Carpet clean"] },
-    { id: "8", name: "Moving & Lifting",slug: "moving",          icon: "📦", sort_order: 8, example_jobs: ["Furniture removal", "Load a trailer", "Piano move"] },
-    { id: "9", name: "General Repairs", slug: "general-repairs", icon: "🛠️", sort_order: 9, example_jobs: ["Fix fence", "Patch hole in wall", "Replace door handle"] },
+    { id: "1", name: "Plumbing",        slug: "plumbing",        icon: "🔧", sort_order: 1, examples: ["Leaking tap", "Blocked drain", "Toilet running"] },
+    { id: "2", name: "Electrical",      slug: "electrical",      icon: "⚡", sort_order: 2, examples: ["Light not working", "Powerpoint fault", "Install ceiling fan"] },
+    { id: "3", name: "Garden & Lawn",   slug: "garden",          icon: "🌿", sort_order: 3, examples: ["Mow lawns", "Prune hedges", "Weed garden beds"] },
+    { id: "4", name: "Painting",        slug: "painting",        icon: "🎨", sort_order: 4, examples: ["Interior walls", "Exterior weatherboard", "Touch-up trim"] },
+    { id: "5", name: "Carpentry",       slug: "carpentry",       icon: "🪚", sort_order: 5, examples: ["Repair deck", "Fix door frame", "Build shelves"] },
+    { id: "6", name: "Tiling",          slug: "tiling",          icon: "🏠", sort_order: 6, examples: ["Cracked tile", "Bathroom retile", "Kitchen splashback"] },
+    { id: "7", name: "Cleaning",        slug: "cleaning",        icon: "🧹", sort_order: 7, examples: ["House clean", "End of tenancy", "Carpet clean"] },
+    { id: "8", name: "Moving & Lifting",slug: "moving",          icon: "📦", sort_order: 8, examples: ["Furniture removal", "Load a trailer", "Piano move"] },
+    { id: "9", name: "General Repairs", slug: "general-repairs", icon: "🛠️", sort_order: 9, examples: ["Fix fence", "Patch hole in wall", "Replace door handle"] },
   ];
 
   useEffect(() => {
     supabase
       .from("job_categories")
-      .select("id, name, slug, icon, example_jobs, sort_order")
+      .select("id, name, slug, icon, examples, sort_order")
       .order("sort_order")
       .then(({ data, error }) => {
         console.log("job_categories fetch — data:", data, "error:", error);
@@ -116,7 +116,7 @@ export default function CategoriesPage() {
                 <div className="text-[2.5rem] leading-none">{cat.icon}</div>
                 <div className="mt-3 text-base font-bold">{cat.name}</div>
                 <div className="mt-2 space-y-0.5">
-                  {(cat.example_jobs || []).slice(0, 3).map((ex, i) => (
+                  {(cat.examples || []).slice(0, 3).map((ex, i) => (
                     <div key={i} className="text-xs text-black/40">{ex}</div>
                   ))}
                 </div>
