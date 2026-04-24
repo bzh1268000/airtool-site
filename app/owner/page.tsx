@@ -1473,8 +1473,8 @@ export default function OwnerPage() {
                         </span>
                       )}
 
-                      {/* Decline (for pre-payment statuses only) */}
-                      {!["in_use", "return_check", "returning", "completed", "disputed", "declined", "cancelled"].includes(b.status || "") && (
+                      {/* Decline — only while owner can still reject (pre-confirmation) */}
+                      {["pending", "waiting_owner", "waiting_renter", "waiting_both"].includes(b.status ?? "") && (
                         <button onClick={() => updateBookingStatus(b.id, "declined")}
                           className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50">
                           Decline
