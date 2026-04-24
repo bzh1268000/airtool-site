@@ -1494,15 +1494,25 @@ export default function OwnerPage() {
                       )}
 
                       {/* Chat */}
-                      {b.user_email && (
-                        <BookingChat
-                          bookingId={b.id}
-                          myEmail={userEmail}
-                          otherEmail={b.user_email}
-                          otherName={b.user_name || undefined}
-                          label="💬 Message Renter"
-                        />
-                      )}
+                      {/* Hide chat once booking is complete AND (reviewed OR >7 days past end date) */}
+                      {b.user_email && (() => {
+                        const isCompleted = b.status === "completed" || b.status === "review";
+                        const hasReview   = !!reviewsMap[b.id];
+                        const dayssinceEnd = b.end_date
+                          ? (Date.now() - new Date(b.end_date).getTime()) / (1000 * 60 * 60 * 24)
+                          : 0;
+                        const isStale = isCompleted && (hasReview || dayssinceEnd >= 7);
+                        if (isStale) return null;
+                        return (
+                          <BookingChat
+                            bookingId={b.id}
+                            myEmail={userEmail}
+                            otherEmail={b.user_email}
+                            otherName={b.user_name || undefined}
+                            label="💬 Message Renter"
+                          />
+                        );
+                      })()}
                     </div>
 
                     {reviewsMap[b.id] && (
