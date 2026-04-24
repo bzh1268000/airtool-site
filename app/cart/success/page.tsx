@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCart } from "@/app/context/CartContext";
 
-export default function CartSuccessPage() {
+function CartSuccessContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { clearCart } = useCart();
+  const sessionId = searchParams.get("session_id");
 
   useEffect(() => {
     clearCart();
@@ -20,6 +22,11 @@ export default function CartSuccessPage() {
         <p className="mt-2 text-sm text-black/60">
           Your bookings are confirmed. Owners will be in touch to arrange pickup.
         </p>
+        {sessionId && (
+          <p className="mt-2 text-xs text-black/30 font-mono break-all">
+            Ref: {sessionId}
+          </p>
+        )}
         <div className="mt-6 space-y-3">
           <button
             onClick={() => router.push("/renter")}
@@ -36,5 +43,17 @@ export default function CartSuccessPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function CartSuccessPage() {
+  return (
+    <Suspense fallback={
+      <main className="flex min-h-screen items-center justify-center bg-[#f7f7f2]">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#8bbb46] border-t-transparent" />
+      </main>
+    }>
+      <CartSuccessContent />
+    </Suspense>
   );
 }

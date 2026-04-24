@@ -73,7 +73,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Total too low for Stripe (min $0.50)" }, { status: 400 });
     }
 
-    const siteUrl = new URL(req.url).origin;
+    // Use env var for base URL — req.url gives 0.0.0.0 in some Next.js environments
+    const baseUrl =
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      process.env.NEXTAUTH_URL ||
+      "http://localhost:3000";
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -85,8 +89,8 @@ export async function POST(req: NextRequest) {
         checkout_type: "cart",
       },
       customer_email: user_email || undefined,
-      success_url: `${siteUrl}/cart/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url:  `${siteUrl}/cart`,
+      success_url: `${baseUrl}/cart/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url:  `${baseUrl}/cart`,
     });
 
     return NextResponse.json({ url: session.url });
