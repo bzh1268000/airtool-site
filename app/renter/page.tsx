@@ -1371,8 +1371,8 @@ export default function RenterPage() {
                     </button>
                   )}
 
-                  {/* Review button — only for completed bookings */}
-                  {b.status === "completed" && (
+                  {/* Review button — completed bookings OR resolved disputes */}
+                  {(b.status === "completed" || disputesMap[b.id]?.status === "resolved") && (
                     reviewedBookingIds.has(b.id) ? (
                       <div className="flex flex-col gap-1">
                         <span className="inline-flex items-center gap-1 rounded-2xl bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-500">
@@ -1408,7 +1408,7 @@ export default function RenterPage() {
                 </div>
 
                 {/* Review form */}
-                {b.status === "completed" && reviewingBookingId === b.id && (
+                {(b.status === "completed" || disputesMap[b.id]?.status === "resolved") && reviewingBookingId === b.id && (
                   <div className="mt-5 rounded-2xl border border-[#8bbb46]/30 bg-[#f8fdf3] p-5 space-y-5">
                     <h3 className="text-base font-bold text-gray-800">Rate this rental</h3>
 

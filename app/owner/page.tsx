@@ -1494,14 +1494,15 @@ export default function OwnerPage() {
                       )}
 
                       {/* Chat */}
-                      {/* Hide chat if: review exists (any status), OR completed 7+ days ago */}
+                      {/* Hide chat if: review exists, OR dispute resolved, OR completed 7+ days ago */}
                       {b.user_email && (() => {
-                        const hasReview    = !!reviewsMap[b.id];
-                        const isCompleted  = b.status === "completed" || b.status === "review";
-                        const daysSinceEnd = b.end_date
+                        const hasReview       = !!reviewsMap[b.id];
+                        const disputeResolved = disputesMap[b.id]?.status === "resolved";
+                        const isCompleted     = b.status === "completed" || b.status === "review";
+                        const daysSinceEnd    = b.end_date
                           ? (Date.now() - new Date(b.end_date).getTime()) / (1000 * 60 * 60 * 24)
                           : 0;
-                        const isStale = hasReview || (isCompleted && daysSinceEnd >= 7);
+                        const isStale = hasReview || disputeResolved || (isCompleted && daysSinceEnd >= 7);
                         if (isStale) return null;
                         return (
                           <BookingChat
