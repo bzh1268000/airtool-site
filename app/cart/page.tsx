@@ -115,6 +115,7 @@ export default function CartPage() {
     setCheckingOut(true);
     try {
       const booking_ids = cartItems.map((i) => i.booking_id);
+      console.log("[cart] sending booking_ids to checkout:", booking_ids);
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch("/api/checkout/cart", {
         method: "POST",

@@ -14,6 +14,7 @@ const adminSupabase = createClient(
 export async function POST(req: NextRequest) {
   try {
     const { booking_ids, user_email } = await req.json();
+    console.log("[checkout/cart] received booking_ids:", booking_ids, "user_email:", user_email);
 
     if (!booking_ids?.length) {
       return NextResponse.json({ error: "No booking IDs provided" }, { status: 400 });
@@ -25,8 +26,13 @@ export async function POST(req: NextRequest) {
       .select("id, tool_id, price_total, start_date, end_date, preferred_dates, status, paid_at, user_email, tools(name)")
       .in("id", booking_ids);
 
+    console.log("[checkout/cart] bookings query result:", bookings, "error:", bErr);
+
     if (bErr || !bookings?.length) {
-      return NextResponse.json({ error: "Bookings not found" }, { status: 404 });
+      return NextResponse.json({
+        error: `Bookings not found for ids: ${JSON.stringify(booking_ids)}`,
+        supabase_error: bErr?.message ?? null,
+      }, { status: 404 });
     }
 
     // Build line items

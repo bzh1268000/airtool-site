@@ -6,12 +6,11 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2026-03-25.dahlia",
 });
 
-function adminSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  );
-}
+// Always use service role — anon key is blocked by RLS on bookings table
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+);
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,17 +21,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "bookingId is required" }, { status: 400 });
     }
 
-    const supabase = adminSupabase();
-
     // Fetch booking
-    const { data: booking, error: bErr } = await supabase
+    const { data: booking, error: bErr } = await supabaseAdmin
       .from("bookings")
-      .select("*")
+      .select("id, tool_id, price_total, start_date, end_date, preferred_dates, status, paid_at, user_email")
       .eq("id", Number(bookingId))
       .single();
 
+    console.log("[checkout] bookings query result:", booking, "error:", bErr);
+
     if (bErr || !booking) {
-      return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+      return NextResponse.json({ error: `Booking not found (id: ${bookingId})` }, { status: 404 });
     }
 
     // Guard — only confirmed, unpaid bookings may proceed
@@ -47,7 +46,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Fetch tool name
-    const { data: tool } = await supabase
+    const { data: tool } = await supabaseAdmin
       .from("tools")
       .select("name")
       .eq("id", Number(booking.tool_id))
