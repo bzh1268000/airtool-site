@@ -56,9 +56,15 @@ function FixContent() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ category, raw_input: q }),
         });
+        if (!res.ok) {
+          const errText = await res.text();
+          console.error("clarify API error — status:", res.status, "body:", errText);
+        }
         const data = await res.json();
+        console.log("clarify API response:", data);
         setClarifyData(data);
-      } catch {
+      } catch (err) {
+        console.error("clarify fetch failed:", err);
         setClarifyData({
           summary: q || "home job",
           question1: { text: "How urgent is this?", options: ["Can wait", "This week", "Urgent"] },
@@ -78,25 +84,34 @@ function FixContent() {
 
   const handleAnswer2 = async (ans: string) => {
     setAnswer2(ans);
-    const clarifications: Clarification[] = [
-      { question: clarifyData!.question1.text, answer: answer1! },
-      { question: clarifyData!.question2.text, answer: ans },
-    ];
-    const jobData = { category, raw_input: q, clarifications };
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(jobData));
+    try {
+      const clarifications: Clarification[] = [
+        { question: clarifyData!.question1.text, answer: answer1! },
+        { question: clarifyData!.question2.text, answer: ans },
+      ];
+      const jobData = { category, raw_input: q, clarifications };
+      console.log("Saving job data to sessionStorage:", jobData);
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(jobData));
 
-    // Check if already logged in
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      setStage("searching");
-      runAnalyse(jobData, session.user);
-    } else {
-      setStage("auth_gate");
+      // Check if already logged in
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      console.log("Session check after answer2 — session:", !!session, "error:", sessionError);
+      if (session) {
+        console.log("Logged in — moving to searching stage");
+        setStage("searching");
+        runAnalyse(jobData, session.user);
+      } else {
+        console.log("Not logged in — moving to auth_gate stage");
+        setStage("auth_gate");
+      }
+    } catch (err) {
+      console.error("handleAnswer2 stage transition failed:", err);
     }
   };
 
   const runAnalyse = async (jobData: { category: string; raw_input: string; clarifications: Clarification[] }, user: { id: string; email?: string }) => {
     try {
+      console.log("runAnalyse — sending to /api/jobs/analyse:", { ...jobData, user_id: user.id, user_email: user.email });
       const res = await fetch("/api/jobs/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -107,13 +122,22 @@ function FixContent() {
           location_city: null,
         }),
       });
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("analyse API error — status:", res.status, "body:", errText);
+      }
       const data = await res.json();
+      console.log("analyse API response:", data);
+      if (data.error) {
+        console.error("analyse API returned error:", data.error);
+      }
       setQuote(data.quote);
       setMatchedTools(data.matched_tools || []);
       setJobId(data.job_id || null);
       sessionStorage.removeItem(SESSION_KEY);
       setStage("results");
-    } catch {
+    } catch (err) {
+      console.error("runAnalyse failed:", err);
       setStage("results");
     }
   };
@@ -256,10 +280,12 @@ function FixContent() {
 
   // ── Stage: results ─────────────────────────────────────────────────────────
   if (!quote) {
+    console.error("Results stage reached but quote is null — stage:", stage, "jobId:", jobId);
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#f7f7f2] px-4">
         <div className="text-center">
           <p className="text-black/50">Something went wrong. <a href="/categories" className="text-[#2f641f] underline">Try again</a></p>
+          <p className="mt-2 text-xs text-black/30">Check the browser console for details.</p>
         </div>
       </div>
     );

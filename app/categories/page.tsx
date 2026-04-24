@@ -15,16 +15,34 @@ type JobCategory = {
 
 export default function CategoriesPage() {
   const router = useRouter();
-  const [categories, setCategories] = useState<JobCategory[]>([]);
+  const [categories, setCategories] = useState<JobCategory[] | null>(null);
   const [searchText, setSearchText] = useState("");
+
+  const FALLBACK_CATEGORIES: JobCategory[] = [
+    { id: "1", name: "Plumbing",        slug: "plumbing",        icon: "🔧", sort_order: 1, example_jobs: ["Leaking tap", "Blocked drain", "Toilet running"] },
+    { id: "2", name: "Electrical",      slug: "electrical",      icon: "⚡", sort_order: 2, example_jobs: ["Light not working", "Powerpoint fault", "Install ceiling fan"] },
+    { id: "3", name: "Garden & Lawn",   slug: "garden",          icon: "🌿", sort_order: 3, example_jobs: ["Mow lawns", "Prune hedges", "Weed garden beds"] },
+    { id: "4", name: "Painting",        slug: "painting",        icon: "🎨", sort_order: 4, example_jobs: ["Interior walls", "Exterior weatherboard", "Touch-up trim"] },
+    { id: "5", name: "Carpentry",       slug: "carpentry",       icon: "🪚", sort_order: 5, example_jobs: ["Repair deck", "Fix door frame", "Build shelves"] },
+    { id: "6", name: "Tiling",          slug: "tiling",          icon: "🏠", sort_order: 6, example_jobs: ["Cracked tile", "Bathroom retile", "Kitchen splashback"] },
+    { id: "7", name: "Cleaning",        slug: "cleaning",        icon: "🧹", sort_order: 7, example_jobs: ["House clean", "End of tenancy", "Carpet clean"] },
+    { id: "8", name: "Moving & Lifting",slug: "moving",          icon: "📦", sort_order: 8, example_jobs: ["Furniture removal", "Load a trailer", "Piano move"] },
+    { id: "9", name: "General Repairs", slug: "general-repairs", icon: "🛠️", sort_order: 9, example_jobs: ["Fix fence", "Patch hole in wall", "Replace door handle"] },
+  ];
 
   useEffect(() => {
     supabase
       .from("job_categories")
       .select("id, name, slug, icon, example_jobs, sort_order")
       .order("sort_order")
-      .then(({ data }) => {
-        if (data) setCategories(data as JobCategory[]);
+      .then(({ data, error }) => {
+        console.log("job_categories fetch — data:", data, "error:", error);
+        if (data && data.length > 0) {
+          setCategories(data as JobCategory[]);
+        } else {
+          console.log("job_categories returned empty — using fallback. Error:", error?.message);
+          setCategories(FALLBACK_CATEGORIES);
+        }
       });
   }, []);
 
@@ -81,7 +99,7 @@ export default function CategoriesPage() {
           Or browse by category
         </h2>
 
-        {categories.length === 0 ? (
+        {categories === null ? (
           <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
             {Array.from({ length: 9 }).map((_, i) => (
               <div key={i} className="h-36 animate-pulse rounded-2xl bg-black/5" />

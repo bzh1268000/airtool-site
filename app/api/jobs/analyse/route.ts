@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Anthropic from "@anthropic-ai/sdk";
 
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.error("ANTHROPIC_API_KEY is not set in environment variables");
+}
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  console.error("SUPABASE_SERVICE_ROLE_KEY is not set in environment variables");
+}
+
 const adminSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -55,16 +62,19 @@ export async function POST(req: NextRequest) {
     });
 
     const text = message.content[0].type === "text" ? message.content[0].text : "{}";
+    console.log("analyse — raw Claude response:", text);
     let quote: any = {};
     try {
       const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       quote = JSON.parse(cleaned);
-    } catch {
-      return NextResponse.json({ error: "Failed to parse AI response" }, { status: 500 });
+      console.log("analyse — parsed quote:", JSON.stringify(quote).substring(0, 200));
+    } catch (parseErr) {
+      console.error("analyse — JSON parse failed:", parseErr, "raw text was:", text);
+      return NextResponse.json({ error: "Failed to parse AI response", raw: text }, { status: 500 });
     }
 
     // Step 3 — save job to DB
-    const { data: jobRow } = await adminSupabase
+    const { data: jobRow, error: insertError } = await adminSupabase
       .from("jobs")
       .insert({
         user_id: user_id || null,
@@ -80,7 +90,13 @@ export async function POST(req: NextRequest) {
         status: "quoted",
       })
       .select("id")
-      .single();
+      .maybeSingle();
+
+    if (insertError) {
+      console.error("analyse — jobs insert failed:", insertError.message, insertError.details);
+    } else {
+      console.log("analyse — job saved, id:", jobRow?.id);
+    }
 
     return NextResponse.json({
       job_id: jobRow?.id,
@@ -88,7 +104,7 @@ export async function POST(req: NextRequest) {
       matched_tools: matchedTools || [],
     });
   } catch (err) {
-    console.error("analyse error", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    console.error("analyse — unhandled error:", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "Internal server error", detail: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
 }

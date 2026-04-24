@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.error("ANTHROPIC_API_KEY is not set in environment variables");
+}
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
 const FALLBACK = {
@@ -42,16 +45,18 @@ Keep questions short. Options 2-4 short phrases. Friendly and quick. Respond in 
     });
 
     const text = message.content[0].type === "text" ? message.content[0].text : "";
+    console.log("clarify — raw Claude response:", text);
 
     try {
       const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       const parsed = JSON.parse(cleaned);
       return NextResponse.json(parsed);
-    } catch {
+    } catch (parseErr) {
+      console.error("clarify — JSON parse failed:", parseErr, "raw text was:", text);
       return NextResponse.json(FALLBACK);
     }
   } catch (err) {
-    console.error("clarify error", err);
+    console.error("clarify — API call failed:", err instanceof Error ? err.message : err);
     return NextResponse.json(FALLBACK);
   }
 }
