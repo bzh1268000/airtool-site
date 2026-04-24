@@ -320,7 +320,10 @@ export default function OwnerPage() {
       : `✅ Owner confirmed the booking — waiting for ${b.user_name || "renter"} to confirm`;
     await sendSystemMessage(b.id, b.user_email, msg);
 
+    // Optimistic update so button disappears instantly
     setBookings((prev) => prev.map((bk) => bk.id === b.id ? { ...bk, ...updates } : bk));
+    // Full re-fetch so all fields (status badge, action buttons) reflect server state
+    await fetchBookings();
   };
 
   const ownerWithdrawConfirmation = async (b: Booking) => {
@@ -1317,7 +1320,7 @@ export default function OwnerPage() {
                       {/* ── Pre-payment flow buttons ── */}
 
                       {/* Owner confirm button (pending/waiting states) */}
-                      {(b.status === "pending" || b.status === "waiting_owner" || b.status === "waiting_both" || b.status === "approved") && !b.owner_confirmed && (
+                      {(b.status === "pending" || b.status === "waiting_owner") && !b.owner_confirmed && (
                         <button
                           onClick={() => ownerConfirmBooking(b)}
                           className="rounded-2xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700"
