@@ -172,7 +172,8 @@ export default function BookingPage({
   // ── init ──────────────────────────────────────────────────────────────────────
   useEffect(() => {
     const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user?.email) {
         router.replace(`/login?redirect=/booking/${id}`);
         return;
@@ -188,14 +189,16 @@ export default function BookingPage({
         supabase
           .from("profiles")
           .select("full_name, phone, address, suburb, city")
-          .eq("id", user.id)
-          .single(),
+          .eq("email", user.email)
+          .maybeSingle(),
         supabase
           .from("bookings")
           .select("id, start_date, end_date, preferred_dates, status")
           .eq("tool_id", Number(id))
           .in("status", BLOCKING_STATUSES),
       ]);
+
+      console.log("Booking page — profile fetch result:", profile);
 
       if (toolData) setTool(toolData as unknown as Tool);
       if (existingBookings) setBookedPeriods(existingBookings as BookedPeriod[]);
@@ -205,6 +208,15 @@ export default function BookingPage({
         setAddress(profile.address ?? "");
         setSuburb(profile.suburb ?? "");
         setCity(profile.city ?? "");
+      } else {
+        // Fallback: try user metadata from auth
+        const meta = user.user_metadata || {};
+        if (meta.full_name) setFullName(meta.full_name);
+        if (meta.phone)     setPhone(meta.phone);
+        if (meta.address)   setAddress(meta.address);
+        if (meta.suburb)    setSuburb(meta.suburb);
+        if (meta.city)      setCity(meta.city);
+        console.log("Booking page — no profile row, falling back to auth metadata:", meta);
       }
 
       // Pre-fill dates from last booking if available
