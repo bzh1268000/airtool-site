@@ -1466,19 +1466,24 @@ export default function OwnerPage() {
                         </div>
                       )}
 
-                      {/* Disputed — action buttons hidden while dispute is active */}
-                      {b.status === "disputed" && (
+                      {/* Disputed / resolved badges */}
+                      {b.status === "disputed" && disputesMap[b.id]?.status === "resolved" ? (
+                        // Dispute record says resolved — booking status may not have synced yet
+                        <span className="inline-flex items-center rounded-2xl border border-green-300 bg-green-50 px-4 py-2 text-sm font-semibold text-green-800">
+                          ✅ Dispute resolved
+                          {disputesMap[b.id]?.resolution === "partial_refund" && " — partial refund issued"}
+                          {disputesMap[b.id]?.resolution === "full_refund"    && " — full refund issued"}
+                          {disputesMap[b.id]?.resolution === "release_to_owner" && " — payment released to you"}
+                        </span>
+                      ) : b.status === "disputed" ? (
                         <span className="inline-flex items-center rounded-2xl border border-red-300 bg-red-100 px-4 py-2 text-sm font-semibold text-red-800">
                           ⚠️ Awaiting AirTool decision
                         </span>
-                      )}
-
-                      {/* Dispute resolved — admin closed the dispute */}
-                      {b.status === "refunded" && (
+                      ) : b.status === "refunded" ? (
                         <span className="inline-flex items-center rounded-2xl border border-green-300 bg-green-50 px-4 py-2 text-sm font-semibold text-green-800">
                           ✅ Dispute resolved — refund issued
                         </span>
-                      )}
+                      ) : null}
 
                       {/* Decline — only while owner can still reject (pre-confirmation) */}
                       {["pending", "waiting_owner", "waiting_renter", "waiting_both"].includes(b.status ?? "") && (
