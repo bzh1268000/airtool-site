@@ -1494,7 +1494,8 @@ export default function OwnerPage() {
                       )}
 
                       {/* Chat */}
-                      {/* Hide chat if: review exists, OR dispute resolved, OR completed 7+ days ago */}
+                      {/* Hide chat if: review exists, OR dispute resolved, OR completed 7+ days ago,
+                          OR confirmed 14+ days ago with no payment (stuck zero-price booking) */}
                       {b.user_email && (() => {
                         const hasReview       = !!reviewsMap[b.id];
                         const disputeResolved = disputesMap[b.id]?.status === "resolved";
@@ -1502,7 +1503,12 @@ export default function OwnerPage() {
                         const daysSinceEnd    = b.end_date
                           ? (Date.now() - new Date(b.end_date).getTime()) / (1000 * 60 * 60 * 24)
                           : 0;
-                        const isStale = hasReview || disputeResolved || (isCompleted && daysSinceEnd >= 7);
+                        const refDate         = b.confirmed_at || b.end_date;
+                        const daysSinceRef    = refDate
+                          ? (Date.now() - new Date(refDate).getTime()) / (1000 * 60 * 60 * 24)
+                          : 0;
+                        const stuckConfirmed  = b.status === "confirmed" && !b.paid_at && daysSinceRef >= 14;
+                        const isStale = hasReview || disputeResolved || (isCompleted && daysSinceEnd >= 7) || stuckConfirmed;
                         if (isStale) return null;
                         return (
                           <BookingChat
