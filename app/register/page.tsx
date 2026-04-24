@@ -95,29 +95,31 @@ function RegisterContent() {
     }
 
     if (data.user) {
-      const profilePayload: Record<string, unknown> = {
+      const profilePayload = {
         id: data.user.id,
         full_name: fullName,
         email,
         phone,
         address,
-        suburb,
+        suburb: suburb || null,
         city,
         id_type: idType,
         id_number: idNumber,
         prefer_delivery: preferDelivery,
         role: "renter",
         successful_transactions: 0,
+        accepted_terms: true,
+        accepted_terms_at: acceptedAt,
       };
 
-      try {
-        await supabase.from("profiles").upsert({
-          ...profilePayload,
-          accepted_terms: true,
-          accepted_terms_at: acceptedAt,
-        });
-      } catch {
-        await supabase.from("profiles").upsert(profilePayload);
+      const { error: profileErr } = await supabase
+        .from("profiles")
+        .upsert(profilePayload, { onConflict: "id" });
+
+      if (profileErr) {
+        console.error("[register] profile upsert error:", profileErr.message, profileErr.details);
+      } else {
+        console.log("[register] profile created for:", email);
       }
     }
 
