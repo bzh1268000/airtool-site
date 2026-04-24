@@ -18,13 +18,19 @@ export default function CartPage() {
         return;
       }
 
+      console.log("[cart] session user id:", session.user.id);
+      console.log("[cart] session user email:", session.user.email);
+
       // Auto-sync: add any confirmed/approved bookings not yet in cart
       // Requires UNIQUE constraint: ALTER TABLE cart_items ADD CONSTRAINT
       // cart_items_user_booking_unique UNIQUE (user_id, booking_id);
       try {
         const userId = session.user.id;
 
-        const [{ data: confirmedBookings }, { data: existingCartItems }] = await Promise.all([
+        const [
+          { data: confirmedBookings, error: bookingsErr },
+          { data: existingCartItems, error: cartItemsErr },
+        ] = await Promise.all([
           supabase
             .from("bookings")
             .select("id")
@@ -37,21 +43,26 @@ export default function CartPage() {
             .eq("user_id", userId),
         ]);
 
+        console.log("[cart] confirmed/approved bookings query:", { data: confirmedBookings, error: bookingsErr });
+        console.log("[cart] existing cart_items query:", { data: existingCartItems, error: cartItemsErr });
+
         const alreadyInCart = new Set((existingCartItems ?? []).map((c: any) => c.booking_id));
         const toAdd = (confirmedBookings ?? []).filter((b: any) => !alreadyInCart.has(b.id));
+        console.log("[cart] bookings to auto-add:", toAdd.map((b: any) => b.id));
 
         if (toAdd.length > 0) {
-          console.log("Cart sync — auto-adding confirmed bookings:", toAdd.map((b: any) => b.id));
-          await supabase.from("cart_items").upsert(
+          const { error: upsertErr } = await supabase.from("cart_items").upsert(
             toAdd.map((b: any) => ({ user_id: userId, booking_id: b.id })),
             { onConflict: "user_id,booking_id" }
           );
+          console.log("[cart] upsert result error:", upsertErr);
         }
       } catch (err) {
-        console.error("Cart sync error:", err);
+        console.error("[cart] sync error:", err);
       }
 
       await loadCart();
+      console.log("[cart] cartItems after loadCart:", cartItems);
       setAuthChecked(true);
     });
   }, [router, loadCart]);
